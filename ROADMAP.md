@@ -340,8 +340,13 @@ Use `pytest-mock` to patch `ollama.Client`. Verify:
 
 ### Phase 4 Exit Criteria
 
-- [ ] All tests green with mocks (no live Ollama needed for CI).
-- [ ] One manual smoke run against real Ollama succeeds.
+- [x] All tests green with mocks (`pytest -q tests/test_llm.py` → 17 passed;
+  full suite **52 passed in 1.91s**, no live Ollama needed).
+- [x] One manual smoke run against real Ollama succeeds — `scripts/smoke_llm.py`
+  hit `gemma3:4b`, `ensure_model_available` returned OK, and `stream_chat`
+  streamed `"Hi there!"` across 3 chunks.
+
+> **Status: Phase 4 complete.** Move to Phase 5.
 
 ---
 
