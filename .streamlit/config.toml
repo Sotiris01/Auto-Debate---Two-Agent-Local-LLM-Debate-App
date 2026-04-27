@@ -1,0 +1,8 @@
+# Streamlit configuration for Auto Debate.
+# Disables first-run email prompt and usage telemetry.
+
+[browser]
+gatherUsageStats = false
+
+[global]
+showWarningOnDirectExecution = false
