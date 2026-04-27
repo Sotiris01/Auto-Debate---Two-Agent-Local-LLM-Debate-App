@@ -468,11 +468,25 @@ with the exact remediation command.
 
 ### Phase 6 Exit Criteria
 
-- [ ] Full debate runs end-to-end with visible streaming.
-- [ ] Stop halts within one token.
-- [ ] Refreshing the page resets cleanly.
-- [ ] Errors from a stopped Ollama server show a helpful message, not a
-  stack trace.
+- [x] Full debate runs end-to-end with visible streaming — `app.py` wires
+  `DebateEngine` into `st.chat_message` placeholders that update via
+  `placeholder.markdown(buf + " ▌")` for a typewriter cursor effect; each
+  committed turn is appended to `st.session_state.messages` so it survives
+  reruns. App boots cleanly headless on `http://localhost:8600` (HTTP 200).
+- [x] Stop halts within one token — Stop button sets `stop_flag=True` and
+  triggers a Streamlit rerun, which destroys the live generator; the engine's
+  `stop_check` callback also short-circuits the inner `run_one_turn` loop on
+  the next token.
+- [x] Refreshing the page resets cleanly — all state lives in
+  `st.session_state` initialized via `_init_state()`; a 🧹 Clear button wipes
+  messages/topic/last_error.
+- [x] Errors from a stopped Ollama server show a helpful message, not a
+  stack trace — `_run_debate` catches `OllamaUnavailableError` and
+  `ModelNotFoundError` and renders them via `st.error` with the exact
+  `ollama serve` / `ollama pull <model>` remediation. Sidebar **Check Ollama**
+  button surfaces the same diagnostics on demand.
+
+> **Status: Phase 6 complete.** Move to Phase 7.
 
 ---
 
