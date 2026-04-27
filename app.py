@@ -233,6 +233,31 @@ if st.session_state.last_error is not None:
     st.error(st.session_state.last_error)
 
 
+# --- transcript export ------------------------------------------------------
+
+
+def _transcript_markdown() -> str:
+    """Build a Markdown export from the committed session messages."""
+    lines = [f"# Debate: {st.session_state.topic or '(no topic)'}", ""]
+    for i, msg in enumerate(st.session_state.messages, start=1):
+        label = _LABELS[msg["speaker"]]
+        lines.append(f"### Turn {i} — {label}")
+        lines.append("")
+        lines.append(str(msg["content"]).strip())
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+if st.session_state.messages and not st.session_state.running:
+    st.download_button(
+        "⬇️ Download transcript (.md)",
+        data=_transcript_markdown(),
+        file_name="auto_debate_transcript.md",
+        mime="text/markdown",
+        use_container_width=False,
+    )
+
+
 # --- live streaming ---------------------------------------------------------
 
 
@@ -325,11 +350,16 @@ if st.session_state.running and st.session_state.pending_topic:
 
 with st.expander("How it works"):
     st.markdown(
-        "- Two agents (**Offender** 🗡️ and **Defender** 🛡️) take turns "
-        "responding to each other about your topic.\n"
-        "- Tokens are streamed live from your local Ollama server — "
-        "nothing leaves your machine.\n"
-        "- Use **Max turns** to cap the debate length; **Stop** halts "
-        "streaming within one token.\n"
-        "- **Clear** wipes the transcript so you can start a new topic.",
+        "**Auto Debate** runs two local LLM personas against a topic of your choice:\n\n"
+        "- **Offender** 🗡️ argues *against* the topic; **Defender** 🛡️ argues *for* it.\n"
+        "- They take turns. Each turn is streamed token-by-token from your local "
+        "[Ollama](https://ollama.com) server — **nothing leaves your machine**.\n"
+        "- The engine maintains two parallel chat histories and uses an "
+        "alternating-role mirroring trick so a single chat model can play both sides.\n"
+        "- **Max turns** caps the debate length (per side); **Stop** halts streaming "
+        "within one token; **Clear** wipes the transcript.\n"
+        "- After a debate finishes, use **Download transcript** to save the conversation "
+        "as Markdown.\n\n"
+        "Source code & full design docs: "
+        "[GitHub repo](https://github.com/Sotiris01/Auto-Debate---Two-Agent-Local-LLM-Debate-App).",
     )

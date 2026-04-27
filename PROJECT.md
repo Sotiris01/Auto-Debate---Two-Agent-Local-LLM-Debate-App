@@ -282,9 +282,9 @@ These are good v2 candidates once the core loop is solid.
 
 ## 13. Definition of Done (v1)
 
-- [ ] User can enter a topic and start a debate.
-- [ ] Offender and Defender alternate with visibly different chat bubbles.
-- [ ] Tokens stream in real time (no full-response blocking).
-- [ ] **Stop Debate** halts generation within ~1 token.
-- [ ] App degrades gracefully if Ollama is down or the model is missing.
-- [ ] Single `streamlit run app.py` launches everything.
+- [x] User can enter a topic and start a debate.
+- [x] Offender and Defender alternate with visibly different chat bubbles.
+- [x] Tokens stream in real time (no full-response blocking).
+- [x] **Stop Debate** halts generation within ~1 token.
+- [x] App degrades gracefully if Ollama is down or the model is missing.
+- [x] Single `streamlit run app.py` launches everything.

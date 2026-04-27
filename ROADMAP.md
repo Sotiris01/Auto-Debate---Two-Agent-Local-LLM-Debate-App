@@ -597,25 +597,52 @@ under the 150-word soft cap. README documents the figure.
 Sections: What it is, 30-second demo GIF, Requirements, Install, Run,
 Troubleshooting, Architecture diagram (copy from PROJECT.md), Roadmap link.
 
+**Done.** [README.md](README.md) now has: status header (v0.1.0), **What
+it is** summary, **Quick start** (installer + `run.ps1`), **Requirements**,
+**Architecture** ASCII diagram (mirrors PROJECT.md §4), **Project layout**
+table, **Performance** numbers from `scripts/bench.py`, a
+**Troubleshooting** matrix mapping symptoms to fixes (`MISSING_OLLAMA`,
+`OLLAMA_DOWN`, `MODEL_MISSING`, slow debates, etc.), **Development** notes
+(`scripts/ci.ps1`, `scripts/dry_run.py`), and a **Roadmap** link. Demo GIF
+is left as a future addition (recording it requires manual screen capture).
+
 ### Step 8.2 — In-app help
 
 A collapsible `st.expander("How it works")` on the main page summarizing the
 two-agent setup and linking to the GitHub repo.
+
+**Done.** [app.py](app.py) renders an `st.expander("How it works")` at the
+bottom of the page that explains the two-agent setup, the
+alternating-role mirroring trick, the local-only data flow, the Stop /
+Clear / Download semantics, and links to the GitHub repository.
 
 ### Step 8.3 — Transcript export (stretch)
 
 Button "Download transcript (.md)" that calls `engine.to_markdown()` and
 serves it via `st.download_button`.
 
+**Done.** [app.py](app.py) shows a **⬇️ Download transcript (.md)**
+`st.download_button` whenever a non-empty transcript exists and the
+debate is not currently running. The Markdown body is built from
+`st.session_state.messages` (the same data `engine.to_markdown` consumes)
+so the export survives Streamlit reruns without keeping the engine
+instance pinned to session state. File is named
+`auto_debate_transcript.md` with `text/markdown` MIME.
+
 ### Step 8.4 — Tagging
 
 `git tag v0.1.0` once Definition of Done in PROJECT.md §13 is fully checked.
 
+**Done.** All six items in [PROJECT.md §13](PROJECT.md) are ticked.
+Annotated tag `v0.1.0` cut on the Phase 8 commit and pushed to origin.
+
 ### Phase 8 Exit Criteria
 
-- [ ] All boxes in PROJECT.md §13 ticked.
-- [ ] README renders correctly on GitHub.
-- [ ] `v0.1.0` tag pushed.
+- [x] All boxes in PROJECT.md §13 ticked.
+- [x] README renders correctly on GitHub.
+- [x] `v0.1.0` tag pushed.
+
+> **Status: Phase 8 complete. Auto Debate v0.1.0 shipped.**
 
 ---
 
