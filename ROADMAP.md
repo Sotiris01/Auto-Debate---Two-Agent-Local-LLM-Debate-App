@@ -298,7 +298,10 @@ Constant string used to kick off the offender on turn 1: `"Open the debate with 
 
 ### Phase 3 Exit Criteria
 
-- [ ] `build_system_prompt` covered by tests, all green.
+- [x] `build_system_prompt` covered by tests, all green
+  (`pytest -q tests/test_prompts.py` → 19 passed; full suite 35 passed in 0.17s).
+
+> **Status: Phase 3 complete.** Move to Phase 4.
 
 ---
 
