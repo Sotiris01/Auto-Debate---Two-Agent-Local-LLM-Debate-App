@@ -17,7 +17,7 @@ from typing import Any
 
 import streamlit as st
 
-from config import ConfigError, Settings, load_settings
+from config import ConfigError, Settings, configure_logging, load_settings
 from engine import DebateEngine
 from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
 
@@ -29,6 +29,8 @@ _LABELS = {"offender": "Offender", "defender": "Defender"}
 
 
 # --- page setup -------------------------------------------------------------
+
+configure_logging()
 
 st.set_page_config(
     page_title="Auto Debate",
@@ -64,13 +66,13 @@ except ConfigError as exc:
 
 def _init_state() -> None:
     defaults: dict[str, Any] = {
-        "messages": [],          # list[{"speaker": str, "content": str}]
+        "messages": [],  # list[{"speaker": str, "content": str}]
         "running": False,
         "stop_flag": False,
         "topic": "",
         "topic_input_nonce": 0,  # bumped on Clear to force-reset the textbox
-        "pending_topic": None,   # set by Start, consumed by the run block
-        "ollama_status": None,   # ("ok"|"error", message)
+        "pending_topic": None,  # set by Start, consumed by the run block
+        "ollama_status": None,  # ("ok"|"error", message)
         "last_error": None,
     }
     for key, value in defaults.items():
@@ -284,9 +286,7 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                 break
             speaker = "defender" if speaker == "offender" else "offender"
     except OllamaUnavailableError as exc:
-        st.session_state.last_error = (
-            f"Lost connection to Ollama mid-debate.\n\n```\n{exc}\n```"
-        )
+        st.session_state.last_error = f"Lost connection to Ollama mid-debate.\n\n```\n{exc}\n```"
     except ModelNotFoundError as exc:
         st.session_state.last_error = f"Model became unavailable: {exc}"
 
@@ -313,7 +313,7 @@ if st.session_state.running and st.session_state.pending_topic:
     st.session_state.pending_topic = None
     try:
         _run_debate(_runtime_settings(), topic_to_run)
-    except Exception as exc:  # noqa: BLE001 — final safety net for the UI
+    except Exception as exc:
         st.session_state.last_error = f"Unexpected error: {type(exc).__name__}: {exc}"
     finally:
         st.session_state.running = False

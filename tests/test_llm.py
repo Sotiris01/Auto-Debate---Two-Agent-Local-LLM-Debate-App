@@ -21,7 +21,6 @@ from llm import (
     chat_options,
 )
 
-
 # --- helpers ----------------------------------------------------------------
 
 
@@ -230,4 +229,3 @@ def test_stream_chat_passes_through_other_errors() -> None:
                 [{"role": "user", "content": "hi"}],
             ),
         )
-

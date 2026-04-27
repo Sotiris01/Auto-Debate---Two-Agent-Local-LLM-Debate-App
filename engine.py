@@ -12,6 +12,7 @@ agents debate through a single chat-model interface.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -29,6 +30,8 @@ __all__ = [
     "LLMClient",
 ]
 
+_log = logging.getLogger(__name__)
+
 
 # --- types ------------------------------------------------------------------
 
@@ -45,8 +48,7 @@ class LLMClient(Protocol):
         *,
         options: dict[str, Any] | None = ...,
         model: str | None = ...,
-    ) -> Iterator[str]:
-        ...
+    ) -> Iterator[str]: ...
 
 
 @dataclass(frozen=True)
@@ -88,10 +90,14 @@ class DebateEngine:
 
     def __post_init__(self) -> None:
         offender_system = build_system_prompt(
-            "offender", self.topic, self.settings.word_limit,
+            "offender",
+            self.topic,
+            self.settings.word_limit,
         )
         defender_system = build_system_prompt(
-            "defender", self.topic, self.settings.word_limit,
+            "defender",
+            self.topic,
+            self.settings.word_limit,
         )
         self._offender_msgs = [{"role": "system", "content": offender_system}]
         self._defender_msgs = [{"role": "system", "content": defender_system}]
@@ -141,8 +147,16 @@ class DebateEngine:
         opp.append({"role": "user", "content": content})
         if speaker == "offender":
             self._offender_has_spoken = True
+        index = len(self._turns) + 1
         self._turns.append(
-            DebateTurn(speaker=speaker, content=content, index=len(self._turns) + 1),
+            DebateTurn(speaker=speaker, content=content, index=index),
+        )
+        _log.info(
+            "committed turn %d: speaker=%s chars=%d words=%d",
+            index,
+            speaker,
+            len(content),
+            len(content.split()),
         )
 
     def run_one_turn(

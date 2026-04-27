@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import load_settings  # noqa: E402
-from llm import OllamaClient  # noqa: E402
+from config import load_settings
+from llm import OllamaClient
 
 settings = load_settings()
 print(f"settings: {settings}")

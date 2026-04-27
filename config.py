@@ -6,18 +6,29 @@ Part of the Auto Debate project. See PROJECT.md and ROADMAP.md.
 Phase 2: single source of truth for all runtime knobs. Loaded once at
 startup via :func:`load_settings`. The returned :class:`Settings` is
 immutable — downstream layers (llm, engine, app) treat it as read-only.
-"""
 
-# TODO(phase-7): add a small logging configuration helper.
+Phase 7 also adds :func:`configure_logging`, a small idempotent helper
+that installs a rotating file handler (logs/auto_debate.log, 1 MB x 3)
+plus a console handler. Engine logs every committed turn at INFO; the
+LLM layer logs request/response sizes at DEBUG.
+"""
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-__all__ = ["ConfigError", "Settings", "load_settings"]
+__all__ = [
+    "ConfigError",
+    "Settings",
+    "configure_logging",
+    "load_settings",
+]
 
 
 # --- defaults (mirror .env.example) -----------------------------------------
@@ -137,3 +148,54 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         top_p=top_p,
         word_limit=word_limit,
     )
+
+
+# --- logging ----------------------------------------------------------------
+
+_LOG_FORMAT = "%(asctime)s %(levelname)-7s %(name)s — %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+_LOG_FILE_BYTES = 1_048_576  # 1 MiB
+_LOG_FILE_BACKUPS = 3
+_LOG_MARKER = "_auto_debate_logging_configured"
+
+
+def configure_logging(
+    *,
+    log_dir: str | os.PathLike[str] = "logs",
+    file_level: int = logging.DEBUG,
+    console_level: int = logging.INFO,
+) -> None:
+    """Install a rotating file handler + console handler on the root logger.
+
+    Idempotent: subsequent calls are no-ops so Streamlit's per-rerun script
+    execution doesn't keep stacking handlers. The file handler captures
+    everything from DEBUG up (so the LLM layer's request/response sizes
+    survive); the console handler is INFO+ for a clean terminal.
+    """
+    root = logging.getLogger()
+    if getattr(root, _LOG_MARKER, False):
+        return
+
+    log_path = Path(log_dir)
+    log_path.mkdir(parents=True, exist_ok=True)
+
+    formatter = logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT)
+
+    file_handler = RotatingFileHandler(
+        log_path / "auto_debate.log",
+        maxBytes=_LOG_FILE_BYTES,
+        backupCount=_LOG_FILE_BACKUPS,
+        encoding="utf-8",
+    )
+    file_handler.setLevel(file_level)
+    file_handler.setFormatter(formatter)
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(formatter)
+
+    # Set root to the lowest of the two so handlers can filter independently.
+    root.setLevel(min(file_level, console_level))
+    root.addHandler(file_handler)
+    root.addHandler(console_handler)
+    setattr(root, _LOG_MARKER, True)

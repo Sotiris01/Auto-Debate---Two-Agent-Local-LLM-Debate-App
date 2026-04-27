@@ -20,14 +20,14 @@ from pathlib import Path
 # Allow `python scripts/dry_run.py "..."` (no -m) to also work.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import load_settings  # noqa: E402
-from engine import DebateEngine  # noqa: E402
-from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError  # noqa: E402
+from config import load_settings
+from engine import DebateEngine
+from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run an Auto Debate from the CLI.")
-    parser.add_argument("topic", help="Debate topic (1–300 chars).")
+    parser.add_argument("topic", help="Debate topic (1-300 chars).")
     parser.add_argument("--max-turns", type=int, default=None, help="Override max_turns.")
     args = parser.parse_args(argv)
 

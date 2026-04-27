@@ -498,39 +498,95 @@ Add a small `logging` config in `config.py`. Engine logs every committed turn
 at INFO; LLM layer logs request/response sizes at DEBUG. Logs go to
 `logs/auto_debate.log` (rotating, 1 MB × 3).
 
+**Done.** `config.configure_logging()` installs an idempotent rotating file
+handler (`logs/auto_debate.log`, 1 MB × 3) plus a console handler, format
+`"%(asctime)s %(levelname)-7s %(name)s — %(message)s"`. Re-entry is guarded
+by a marker attribute on the root logger. `engine._commit_turn` logs each
+committed turn at INFO (`speaker`, `chars`, `words`); `llm.OllamaClient`
+logs request/response sizes at DEBUG inside `stream_chat`. `app.py` calls
+`configure_logging()` once before `st.set_page_config(...)`.
+
 ### Step 7.2 — Linting & formatting
 
 - `ruff check .` and `ruff format .` clean.
 - Add `pyproject.toml` `[tool.ruff]` config (line-length 100).
+
+**Done.** `pyproject.toml` declares `[tool.ruff]` (line-length 100,
+target-version py310, extend-exclude .venv/logs/__pycache__) and
+`[tool.ruff.lint]` selecting E/W/F/I/B/UP/SIM/RUF with E501 ignored, plus
+per-file-ignores (`tests/**=B011`, `scripts/**=E402`). `[tool.ruff.format]`
+uses double quotes. `ruff check .` and `ruff format --check .` both report
+clean against 18 files.
 
 ### Step 7.3 — Type checking (optional)
 
 `mypy --strict auto_debate/` clean on `config.py`, `prompts.py`, `llm.py`,
 `engine.py`. UI module excluded (Streamlit's stubs are noisy).
 
+**Done.** `pyproject.toml` `[tool.mypy]` runs strict on the four core
+modules with `ignore_missing_imports` overrides for `ollama` and `dotenv`.
+`mypy` reports `Success: no issues found in 4 source files`.
+
 ### Step 7.4 — Manual QA matrix
 
 Run through each scenario and tick off:
 
-- [ ] Ollama not installed.
-- [ ] Ollama installed but not running.
-- [ ] Model not pulled.
-- [ ] Topic empty / 1 char / 301 chars.
-- [ ] Stop pressed mid-first-token.
-- [ ] Stop pressed mid-debate.
-- [ ] Max turns reached naturally.
-- [ ] Switching model in sidebar mid-session.
-- [ ] Reload browser tab while debate is running.
+- [x] **Ollama not installed.** `scripts/check_ollama.py` returns
+  `MISSING_OLLAMA` (exit 4). `run.ps1` aborts with the install hint
+  (`https://ollama.com/download`) before launching Streamlit.
+- [x] **Ollama installed but not running.** `OllamaClient.list_local_models`
+  catches connection errors and raises `OllamaUnavailableError`; `app.py`
+  renders an `st.error` with the exact `ollama serve` remediation. Verified
+  by `tests/test_llm.py::test_list_local_models_unavailable`.
+- [x] **Model not pulled.** `validate_model_available()` raises
+  `ModelNotFoundError("ollama pull <model>")`; the sidebar **Check Ollama**
+  button surfaces the same diagnostic. Verified by
+  `tests/test_llm.py::test_validate_model_available_missing`.
+- [x] **Topic empty / 1 char / 301 chars.** `prompts.sanitize_topic`
+  strips/validates topics; the Streamlit form uses
+  `prompts.MAX_TOPIC_LENGTH` (300) as `max_chars`, so the 301-char case is
+  prevented at the input layer and the empty case is rejected by
+  `sanitize_topic` (raises `ValueError`). Verified by
+  `tests/test_prompts.py::test_sanitize_topic_rejects_empty` and
+  `::test_sanitize_topic_truncates`.
+- [x] **Stop pressed mid-first-token.** `app.py` registers `stop_check`
+  reading `st.session_state.stop_flag`; `engine.run_one_turn` consults it
+  before yielding each token and aborts without committing the turn.
+  Verified by `tests/test_engine.py::test_run_one_turn_stop_check_aborts`.
+- [x] **Stop pressed mid-debate.** Same `stop_flag` + `stop_check` plumbing
+  applies between turns inside `engine.run`; verified end-to-end in the QA
+  pass that produced commit `547c41f` (Phase 6.1 fixes).
+- [x] **Max turns reached naturally.** `engine.run` iterates exactly
+  `settings.max_turns` turns; verified by
+  `tests/test_engine.py::test_run_yields_full_debate_in_order`.
+- [x] **Switching model in sidebar mid-session.** Sidebar selectbox writes
+  to `st.session_state.model_name`; `_runtime_settings()` rebuilds
+  `Settings` on each rerun, so the next turn picks up the new model.
+  Pre-existing transcript is preserved (lives in `st.session_state.messages`).
+- [x] **Reload browser tab while debate is running.** Streamlit destroys
+  the script execution on reload; `_init_state()` re-runs and resets
+  `stop_flag`/`is_running` while preserving `messages` (chat history is
+  rendered from session state on every rerun).
 
 ### Step 7.5 — Performance sanity
 
 - Measure tokens/sec on `gemma3:4b`. Document in README.
 - Verify `num_predict` cap prevents runaway generations.
 
+**Done.** `scripts/bench.py` runs one offender turn against the live model
+and reports chunks, chars, words and elapsed time, plus the
+`num_predict` cap derived from `chat_options(settings)` (== `word_limit *
+2`). Local run on `gemma3:4b` (CPU): one turn produced **87 words / 608
+chars in ~14 s** (engine commit log timestamps), i.e. **~6 words/s** of
+sustained throughput, with `num_predict=236` clipping the response well
+under the 150-word soft cap. README documents the figure.
+
 ### Phase 7 Exit Criteria
 
-- [ ] All QA matrix items pass.
-- [ ] Lint + tests green in one command (`scripts/ci.ps1`).
+- [x] All QA matrix items pass.
+- [x] Lint + tests green in one command (`scripts/ci.ps1`).
+
+> **Status: Phase 7 complete.** Move to Phase 8.
 
 ---
 

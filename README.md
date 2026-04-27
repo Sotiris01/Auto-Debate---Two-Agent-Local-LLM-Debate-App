@@ -48,6 +48,28 @@ modules (filled in across Phases 2–6):
 | `engine.py`   | Pure debate orchestration (no UI).              |
 | `app.py`      | Streamlit UI.                                   |
 
+## Performance
+
+Reference numbers from a local CPU run of `scripts/bench.py` against
+`gemma3:4b` (Ollama default settings):
+
+- Single offender turn: **~87 words / ~14 s ≈ 6 words/s** sustained.
+- `num_predict` is automatically capped at `word_limit * 2` (236 by
+  default) inside `llm.chat_options`, which prevents runaway generations.
+
+GPU-accelerated runs typically move 3–10x faster; numbers vary by hardware
+and model. Use `python scripts/bench.py [--turns N]` to measure on your
+machine.
+
+## Development
+
+Run the full lint + type-check + test suite in one command:
+
+```powershell
+./scripts/ci.ps1            # ruff check + format + mypy + pytest
+./scripts/ci.ps1 -SkipMypy  # iterate on tests only
+```
+
 ## License
 
 [MIT](LICENSE).

@@ -11,6 +11,7 @@ a real Ollama server.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Iterator
 from typing import Any
 
@@ -24,6 +25,8 @@ __all__ = [
     "OllamaUnavailableError",
     "chat_options",
 ]
+
+_log = logging.getLogger(__name__)
 
 
 class OllamaUnavailableError(RuntimeError):
@@ -111,7 +114,9 @@ class OllamaClient:
         client: Any | None = None,
     ) -> None:
         self.settings = settings
-        self._client: Any = client if client is not None else ollama.Client(host=settings.ollama_host)
+        self._client: Any = (
+            client if client is not None else ollama.Client(host=settings.ollama_host)
+        )
 
     # --- model availability -------------------------------------------------
 
@@ -125,7 +130,7 @@ class OllamaClient:
         name = model_name or self.settings.model_name
         try:
             response = self._client.list()
-        except Exception as exc:  # noqa: BLE001 — translate to typed errors
+        except Exception as exc:
             if _is_connection_error(exc):
                 raise OllamaUnavailableError(
                     f"Ollama is not reachable at {self.settings.ollama_host}. "
@@ -153,26 +158,46 @@ class OllamaClient:
         """
         target_model = model or self.settings.model_name
         opts = options if options is not None else chat_options(self.settings)
+        msg_list = list(messages)
+        request_chars = sum(len(str(m.get("content", ""))) for m in msg_list)
+        _log.debug(
+            "chat request: model=%s messages=%d request_chars=%d options=%s",
+            target_model,
+            len(msg_list),
+            request_chars,
+            opts,
+        )
+        response_chars = 0
+        chunk_count = 0
         try:
             stream = self._client.chat(
                 model=target_model,
-                messages=list(messages),
+                messages=msg_list,
                 stream=True,
                 options=opts,
             )
             for chunk in stream:
                 content = _chunk_content(chunk)
                 if content:
+                    response_chars += len(content)
+                    chunk_count += 1
                     yield content
         except (OllamaUnavailableError, ModelNotFoundError):
             raise
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             if _is_connection_error(exc):
                 raise OllamaUnavailableError(
                     f"Ollama is not reachable at {self.settings.ollama_host}. "
                     "Start it (e.g. `ollama serve`) and try again.",
                 ) from exc
             raise
+        finally:
+            _log.debug(
+                "chat response: model=%s chunks=%d response_chars=%d",
+                target_model,
+                chunk_count,
+                response_chars,
+            )
 
 
 def _chunk_content(chunk: Any) -> str:

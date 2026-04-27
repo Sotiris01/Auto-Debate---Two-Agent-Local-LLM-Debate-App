@@ -208,7 +208,7 @@ def check_network(r: Report) -> None:
     for url in targets:
         req = urllib.request.Request(url, method="HEAD")
         try:
-            with urllib.request.urlopen(req, timeout=4) as resp:  # noqa: S310
+            with urllib.request.urlopen(req, timeout=4) as resp:
                 if resp.status >= 400:
                     failures.append(f"{url} -> HTTP {resp.status}")
         except (urllib.error.URLError, TimeoutError, OSError) as e:

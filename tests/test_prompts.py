@@ -17,7 +17,6 @@ from prompts import (
     sanitize_topic,
 )
 
-
 # --- sanitize_topic ---------------------------------------------------------
 
 
@@ -97,4 +96,3 @@ def test_templates_have_placeholders() -> None:
     for tpl in (OFFENDER_SYSTEM_TEMPLATE, DEFENDER_SYSTEM_TEMPLATE):
         assert "{topic}" in tpl
         assert "{word_limit}" in tpl
-

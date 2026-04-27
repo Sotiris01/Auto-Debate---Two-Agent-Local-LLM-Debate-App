@@ -45,10 +45,7 @@ def activate_hint(venv_dir: Path) -> str:
     if platform.system() == "Windows":
         ps1 = venv_dir / "Scripts" / "Activate.ps1"
         bat = venv_dir / "Scripts" / "activate.bat"
-        return (
-            f"PowerShell : {ps1}\n"
-            f"  cmd.exe    : {bat}"
-        )
+        return f"PowerShell : {ps1}\n  cmd.exe    : {bat}"
     return f"  bash/zsh   : source {venv_dir / 'bin' / 'activate'}"
 
 

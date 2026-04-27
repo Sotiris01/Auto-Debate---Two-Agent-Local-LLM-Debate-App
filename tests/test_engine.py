@@ -17,7 +17,6 @@ import pytest
 from config import Settings
 from engine import DebateEngine, DebateTurn
 
-
 # --- helpers ----------------------------------------------------------------
 
 
@@ -60,7 +59,7 @@ class _ScriptedClient:
 
 def test_debate_turn_is_frozen() -> None:
     t = DebateTurn(speaker="offender", content="hi", index=1)
-    with pytest.raises(Exception):  # FrozenInstanceError
+    with pytest.raises(AttributeError):  # FrozenInstanceError
         t.content = "nope"  # type: ignore[misc]
 
 
@@ -219,7 +218,7 @@ def test_run_honors_stop_check_between_turns() -> None:
     def stop() -> bool:
         return len(seen) >= 1  # stop after the first token
 
-    for speaker, tok in eng.run(stop_check=stop):
+    for _speaker, tok in eng.run(stop_check=stop):
         seen.append(tok)
 
     # The first token "o1" is yielded, then stop fires before any more.
@@ -245,4 +244,3 @@ def test_to_markdown_lists_each_turn() -> None:
     assert "Turn 2 — Defender" in md
     assert "o1 text" in md
     assert "d1 text" in md
-

@@ -44,7 +44,7 @@ def test_defaults_when_env_empty() -> None:
 
 def test_settings_is_frozen() -> None:
     s = load_settings()
-    with pytest.raises(Exception):  # FrozenInstanceError subclasses AttributeError
+    with pytest.raises(AttributeError):  # FrozenInstanceError subclasses AttributeError
         s.max_turns = 99  # type: ignore[misc]
 
 
@@ -119,4 +119,3 @@ def test_dotenv_path_is_loaded(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Non
     s = load_settings(dotenv_path=env_file)
     assert s.model_name == "gemma3:12b"
     assert s.max_turns == 4
-

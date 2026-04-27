@@ -1,0 +1,49 @@
+[project]
+name = "auto-debate"
+version = "0.1.0"
+description = "Local two-agent LLM debate app powered by Ollama and Streamlit."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Sotiris" }]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "logs", "__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["B011"]
+"scripts/**" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["config.py", "prompts.py", "llm.py", "engine.py"]
+# Streamlit and ollama don't ship strict-friendly stubs.
+[[tool.mypy.overrides]]
+module = ["ollama", "ollama.*", "dotenv", "dotenv.*"]
+ignore_missing_imports = true

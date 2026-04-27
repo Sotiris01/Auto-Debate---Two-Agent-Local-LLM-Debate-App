@@ -86,10 +86,7 @@ def install_hint() -> str:
             "  or download the dmg: https://ollama.com/download/mac"
         )
     if sysname == "Linux":
-        return (
-            "Install Ollama for Linux:\n"
-            "    curl -fsSL https://ollama.com/install.sh | sh"
-        )
+        return "Install Ollama for Linux:\n    curl -fsSL https://ollama.com/install.sh | sh"
     return "See https://ollama.com/download"
 
 
@@ -107,7 +104,7 @@ def _windows_fallback_paths() -> list[str]:
     local = os.environ.get("LOCALAPPDATA")
     if local:
         candidates.append(os.path.join(local, "Programs", "Ollama", "ollama.exe"))
-    program_files = os.environ.get("ProgramFiles")
+    program_files = os.environ.get("PROGRAMFILES")
     if program_files:
         candidates.append(os.path.join(program_files, "Ollama", "ollama.exe"))
     return candidates
@@ -133,7 +130,7 @@ def fetch_tags(host: str, timeout: float = 2.0) -> list[dict] | None:
     """Return the parsed ``models`` list from /api/tags, or None on failure."""
     url = host.rstrip("/") + "/api/tags"
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError):
         return None
