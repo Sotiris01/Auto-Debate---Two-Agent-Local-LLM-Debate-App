@@ -219,11 +219,18 @@ valid Python.
 - https://github.com/Sotiris01/Auto-Debate---Two-Agent-Local-LLM-Debate-App.git
 - sotiris.mp@gmail.com
 
+> Local first commit landed on `main` as `[P1] scaffold: empty modules +
+> smoke test` (28 files, identity `sotiris.mp@gmail.com`). Pushing to the
+> GitHub remote is left as a conscious manual action.
+
 ### Phase 1 Exit Criteria
 
-- [ ] `pytest -q tests/test_smoke.py` passes.
-- [ ] `streamlit run app.py` launches and shows a blank page (no crash).
-- [ ] No module has implementation logic yet — only docstrings & TODOs.
+- [x] `pytest -q tests/test_smoke.py` passes (1 passed in 0.06s).
+- [x] `streamlit run app.py` launches and shows a blank page (no crash) —
+  verified headless on port 8599.
+- [x] No module has implementation logic yet — only docstrings & TODOs.
+
+> **Status: Phase 1 complete.** Move to Phase 2.
 
 ---
 
@@ -253,9 +260,12 @@ A `@dataclass(frozen=True)` with fields matching `.env.example`:
 
 ### Phase 2 Exit Criteria
 
-- [ ] `from config import load_settings; load_settings()` returns a valid
-  `Settings` on a clean `.env`.
-- [ ] All validation tests pass.
+- [x] `from config import load_settings; load_settings()` returns a valid
+  `Settings` on a clean `.env` (verified — defaults match `.env.example`).
+- [x] All validation tests pass (`pytest -q tests/test_config.py` →
+  16 passed in 0.20s).
+
+> **Status: Phase 2 complete.** Move to Phase 3.
 
 ---
 
