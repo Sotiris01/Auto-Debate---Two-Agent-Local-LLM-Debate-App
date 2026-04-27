@@ -399,8 +399,13 @@ With a mocked `llm_client` that yields a fixed list of tokens:
 
 ### Phase 5 Exit Criteria
 
-- [ ] A small `python -m scripts.dry_run` (added in this phase) prints a
-  full debate to stdout with no Streamlit involved.
+- [x] A small `python -m scripts.dry_run "<topic>"` (added in this phase) prints a
+  full debate to stdout with no Streamlit involved — verified live against
+  `gemma3:4b` for `--max-turns 1` (offender + defender each streamed cleanly).
+- [x] Engine unit tests green (`pytest -q tests/test_engine.py` → 13 passed;
+  full suite **65 passed in 1.86s**).
+
+> **Status: Phase 5 complete.** Move to Phase 6.
 
 ---
 
