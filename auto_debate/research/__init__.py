@@ -29,6 +29,12 @@ sites only need to update the dotted import path::
 
 from __future__ import annotations
 
+from auto_debate.research.planner import (
+    PLANNER_SYSTEM_PROMPT,
+    PlannedQuery,
+    QueryPlan,
+    plan_queries,
+)
 from auto_debate.research.researcher import (
     DuckDuckGoAdapter,
     OfflineFixtureAdapter,
@@ -46,9 +52,12 @@ from auto_debate.research.stance import (
 )
 
 __all__ = [
+    "PLANNER_SYSTEM_PROMPT",
     "STANCE_SYSTEM_PROMPT",
     "DuckDuckGoAdapter",
     "OfflineFixtureAdapter",
+    "PlannedQuery",
+    "QueryPlan",
     "ResearchAdapterError",
     "ResearchLimits",
     "Researcher",
@@ -56,5 +65,6 @@ __all__ = [
     "SearchResult",
     "StanceBrief",
     "analyse_topic",
+    "plan_queries",
     "render_stance_lines",
 ]

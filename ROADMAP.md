@@ -34,7 +34,8 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ |
 | 17 | Agentic-research literature review | `docs/research/agentic_research.md` design doc + Mermaid pipeline diagram + risk register | 223 | ✅ |
 | 18 | Topic analysis & per-agent stance | `StanceBrief` + `analyse_topic` + `AgentMemory.stance` + `<MEMORY>` rendering | 242 | ✅ |
-**CI baseline:** 242 / 242 tests passing · mypy strict on 19 source files.
+| 19 | Stance-driven query planner | `QueryPlan` + `plan_queries` + Jaccard dedup + `runs/.../<agent>.plan.json` | 261 | ✅ |
+**CI baseline:** 261 / 261 tests passing · mypy strict on 19 source files.
 
 ---
 
@@ -72,7 +73,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 16 | Repository layout | groundwork | all later — ✅ shipped |
 | 17 | Agentic-research literature review | research | 18-21 — ✅ shipped |
 | 18 | Topic analysis & per-agent stance | implementation | 19 — ✅ shipped |
-| 19 | Stance-driven query planner | implementation | 20 |
+| 19 | Stance-driven query planner | implementation | 20 — ✅ shipped |
 | 20 | Per-result favourability filter | implementation | 21 |
 | 21 | Structured, attributed Knowledge synthesis | implementation | — |
 | 22 | Run metadata & transcript auto-save | polish | — |
@@ -146,30 +147,20 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 19 — Stance-Driven Query Planner _(planned)_
+### Phase 19 — Stance-Driven Query Planner _(✅ shipped)_
 
-**Goal:** Replace the current "agent + topic-string → 3-5 queries"
-planner with a stance-aware version that produces queries grounded in
-the `StanceBrief` from Phase 18. Targets the offender-empty asymmetry
-in Issue B of the post-mortem.
+**Outcome:** When `stance_analysis_enabled` is on and a `StanceBrief` was produced, the legacy topic-string planner is bypassed in favour of `plan_queries(client, brief)`. The new planner is one LLM call (`temperature=0.3`, `num_predict=384`) gated by `<PLAN>{...}</PLAN>` strict-JSON; every query references at least one `key_claim` index and contains at least one entity from the brief; near-duplicate queries are dropped deterministically by token-set Jaccard ≥ 0.6. When fewer than 3 queries survive validation, a deterministic 3-query fallback (topic / thesis / entity+thesis) is appended so the search stage never starves. The plan is persisted to `runs/<run_id>/research/<agent>.plan.json` for audit. Failures (LLM raise, garbage JSON, schema mismatch) degrade to fallback only — the debate never crashes. CI: ruff + ruff format + mypy strict (19 files) + pytest **261 / 261** all green; no new third-party deps.
 
-> **Design contract:** [docs/research/agentic_research.md §2.2](docs/research/agentic_research.md) fixes the planner prompt, `<PLAN>` JSON schema, the Jaccard-≥0.6 diversity rule, and the 3-query fallback (topic / thesis / entity+thesis).
-
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| `auto_debate/research/planner.py` | New `QueryPlan` dataclass: `agent_id`, `queries: tuple[PlannedQuery, ...]`. `PlannedQuery` carries `text`, `target_claim` (back-reference to a key_claim), `expected_source_kinds` (e.g. `["paper", "news", "forum"]`). |
-| `plan_queries(client, brief) -> QueryPlan` | One LLM call producing 5-8 queries; each query must reference at least one `key_claim` index. JSON-strict, `<PLAN>{...}</PLAN>`. |
-| Diversity rule | Planner prompt forbids near-duplicate queries (cosine-similarity check rejects > 0.9). |
-| Fallbacks | If the planner returns < 3 valid queries, append topic-as-query and the agent's thesis-as-query so the pipeline never starves. |
-| Persistence | Plan is saved to `runs/<run_id>/research/<agent>.plan.json` for later inspection. |
-| Tests | Schema validation, claim-reference enforcement, fallback path, dedup, persistence round-trip. |
-
-**Phase 19 Exit Criteria**
-- [ ] Each agent enters the search stage with ≥ 3 distinct queries that reference at least one of its own `key_claims`.
-- [ ] No query in the plan is a near-duplicate of another (by token-set Jaccard).
-- [ ] `runs/<run_id>/research/<agent>.plan.json` exists after every research pass.
+| `auto_debate/research/planner.py` — `PlannedQuery` + `QueryPlan` + `PLANNER_SYSTEM_PROMPT` + `plan_queries` + `persist_plan` | ✅ |
+| Strict `<PLAN>{...}</PLAN>` JSON parser with code-fence stripping and bare-object fallback | ✅ |
+| Validation enforces 12-word cap, claim-index range, entity-grounding, source-kind whitelist | ✅ |
+| Token-set Jaccard ≥ 0.6 deterministic dedup; 8-query hard cap | ✅ |
+| Deterministic 3-query fallback when LLM under-delivers (≤ 2 valid queries) | ✅ |
+| `Researcher` wires the planner; persists plan to `runs/<run_id>/research/<agent>.plan.json` | ✅ |
+| Tests (`tests/test_planner.py` ×19) | ✅ |
+| Design contract `docs/research/agentic_research.md` §2.2 honoured verbatim | ✅ |
 
 ---
 

@@ -37,6 +37,10 @@ from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 
 from auto_debate.memory import AgentId, AgentMemory, MemoryStore
+from auto_debate.research.planner import (
+    QueryPlan,
+    plan_queries,
+)
 from auto_debate.research.stance import (
     StanceBrief,
     analyse_topic,
@@ -422,6 +426,7 @@ class Researcher:
         # benefits from a structured topic reading.
         stance_lines: tuple[str, ...] = memory.stance
         brief: StanceBrief | None = None
+        plan: QueryPlan | None = None
         if self.stance_enabled:
             brief = analyse_topic(
                 self.llm_client,
@@ -437,8 +442,22 @@ class Researcher:
                     len(brief.key_claims),
                     len(brief.expected_counterclaims),
                 )
+                # Phase 19: stance-driven query planner. Persisted to
+                # ``runs/<run_id>/research/<agent>.plan.json`` for audit.
+                plan = plan_queries(
+                    self.llm_client,
+                    brief,
+                    model=self.model,
+                    run_root=self.memory_store.root,
+                    run_id=self.run_id,
+                )
+                _log.info(
+                    "query plan produced for agent=%s (%d queries)",
+                    agent_id,
+                    len(plan.queries),
+                )
 
-        queries = self._plan_queries(topic, agent_id)
+        queries = list(plan.texts()) if plan is not None else self._plan_queries(topic, agent_id)
         queries = queries[: self.limits.max_queries]
         new_entries: list[str] = []
 
