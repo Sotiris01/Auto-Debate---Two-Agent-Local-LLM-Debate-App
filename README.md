@@ -171,6 +171,10 @@ the manual `report.md`). Malformed judge output, LLM errors, and
 out-of-range scores degrade gracefully — the debate transcript is
 unaffected.
 
+The judge runs as a single extra LLM pass after the final turn and is
+budgeted for ~700 tokens. On a CPU-only `gemma3:4b` it typically takes
+**1–3 minutes** to return; the UI shows a spinner the whole time.
+
 ## Performance
 
 Reference numbers from a local CPU run of `scripts/bench.py` against

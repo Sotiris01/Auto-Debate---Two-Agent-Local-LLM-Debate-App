@@ -791,13 +791,19 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
     else:
         # Phase 15: optional post-debate judge pass.
         if settings.judge_enabled and engine.transcript() and not stop_check():
-            with st.spinner("Judge is scoring the debate…"):
+            with st.spinner(
+                "Judge is scoring the debate… (one extra LLM pass — "
+                "this can take a couple of minutes on a CPU model)",
+            ):
                 report = _run_judge(client, settings, engine, topic_text)
             if report is not None:
                 st.session_state.judge_report = report
                 if memory_store is not None and run_id is not None:
+                    # Persist alongside the run, NOT inside the per-run
+                    # ``memory/`` subfolder — the report describes the
+                    # whole debate, not a single agent's memory.
                     try:
-                        save_report(report, run_dir=memory_store.run_dir(run_id))
+                        save_report(report, run_dir=memory_store.root / run_id)
                     except OSError as exc:
                         st.warning(
                             f"Judge report could not be saved: {type(exc).__name__}: {exc}",

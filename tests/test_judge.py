@@ -137,6 +137,20 @@ def test_parse_rejects_bool_score() -> None:
     assert parse_judge_response(raw=raw, topic="t") is None
 
 
+def test_parse_rejects_missing_verdict() -> None:
+    payload = _good_payload()
+    del payload["verdict"]
+    raw = _wrap_report(payload)
+    assert parse_judge_response(raw=raw, topic="t") is None
+
+
+def test_parse_rejects_empty_verdict() -> None:
+    payload = _good_payload()
+    payload["verdict"] = "   "
+    raw = _wrap_report(payload)
+    assert parse_judge_response(raw=raw, topic="t") is None
+
+
 # --- 15.2 prompt assembly ---------------------------------------------------
 
 

@@ -85,6 +85,18 @@ def test_topic_adherence_handles_empty_inputs() -> None:
     assert topic_adherence("anything", "") == 0.0
 
 
+def test_topic_adherence_matches_inflected_forms() -> None:
+    """Singular/plural inflection should not collapse the cosine to ~0.
+
+    Regression for the live-UI bug where turns about ``cat``/``dog``
+    scored ~0 against the topic ``Cats are better pets than dogs``.
+    """
+    topic = "Cats are better pets than dogs"
+    inflected = "A cat offers a calmer companionship than a dog ever could as a pet."
+    score = topic_adherence(inflected, topic)
+    assert score > 0.3
+
+
 def test_label_for_adherence_buckets() -> None:
     th = DEFAULT_THRESHOLDS
     assert label_for_adherence(0.9, th) == "HIGH"

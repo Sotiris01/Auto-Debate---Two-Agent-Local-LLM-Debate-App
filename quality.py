@@ -162,6 +162,25 @@ def _tokenise(text: str) -> list[str]:
     return [tok.lower() for tok in _TOKEN_RE.findall(text) if tok.lower() not in _STOP_WORDS]
 
 
+def _stem_for_adherence(token: str) -> str:
+    """Crude length-gated suffix stripper used only by :func:`topic_adherence`.
+
+    Live debates routinely toggle between ``cats`` (the topic noun) and
+    ``cat`` (the inflected form a turn naturally uses), and the raw
+    TF-IDF cosine then drops to zero. A real stemmer is overkill for
+    this — chopping the three most common English plural / 3rd-person
+    suffixes off tokens of length > 3 lifts adherence on inflected
+    matches without distorting short content words.
+    """
+    if len(token) > 4 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 4 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
+        return token[:-1]
+    return token
+
+
 def _ngrams(tokens: Sequence[str], n: int) -> set[tuple[str, ...]]:
     if n < 1:
         msg = f"n must be >= 1 (got {n})"
@@ -264,6 +283,12 @@ def topic_adherence(turn: str, topic: str, *, role_hint: str = "") -> float:
     topic_tokens = _tokenise(topic_text)
     if not turn_tokens or not topic_tokens:
         return 0.0
+
+    # Normalise inflection (cats/cat, dogs/dog, applies/apply) so the
+    # cosine doesn't collapse to ~0 on naturally-phrased turns. Used
+    # only here — ngram_overlap deliberately keeps raw tokens.
+    turn_tokens = [_stem_for_adherence(t) for t in turn_tokens]
+    topic_tokens = [_stem_for_adherence(t) for t in topic_tokens]
 
     df: Counter[str] = Counter()
     df.update(set(turn_tokens))

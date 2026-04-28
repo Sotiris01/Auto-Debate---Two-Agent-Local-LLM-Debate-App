@@ -350,6 +350,11 @@ def parse_judge_response(*, raw: str, topic: str, model: str = "") -> JudgeRepor
         )
 
     verdict = _coerce_text(data.get("verdict"), max_chars=_MAX_VERDICT_CHARS)
+    if not verdict:
+        # Parity with missing dimensions: the judge prompt explicitly
+        # asks for a one-paragraph verdict, and downstream rendering
+        # assumes one. Reject silently rather than persisting a stub.
+        return None
     return JudgeReport(
         topic=topic,
         scores=tuple(scored),
