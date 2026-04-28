@@ -7,6 +7,9 @@ UI, powered by [Ollama](https://ollama.com) running on your own machine.
 > **Status:** v0.1.0 — feature-complete per
 > [PROJECT.md §13](PROJECT.md). See [ROADMAP.md](ROADMAP.md) for the full
 > phase-by-phase build log and [PROJECT.md](PROJECT.md) for the spec.
+> The v0.3 research rework is designed in
+> [docs/research/agentic_research.md](docs/research/agentic_research.md)
+> (Phase 17).
 
 ## What it is
 
