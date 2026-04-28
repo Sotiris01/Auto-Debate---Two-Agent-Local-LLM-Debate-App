@@ -1,673 +1,530 @@
 # Auto Debate — Implementation Roadmap
 
-This roadmap is the execution plan for the project described in
-[PROJECT.md](PROJECT.md). It is split into **8 phases**, each with concrete
-steps, file-level deliverables, and an explicit "done when…" checklist.
+This roadmap tracks every development phase of the project. Phases 0–8 are
+**shipped history** (v0.1.0). Future phases are appended below.
 
-The order is deliberate: we first guarantee the **environment is ready**, then
-**scaffold every file empty**, then **fill in layers from the bottom up**
-(config → llm → prompts → engine → UI), then harden and ship.
-
-> Convention: `[script]` = something that runs from a terminal, `[file]` =
-> something that gets created/edited, `[manual]` = a one-time human action.
+> Convention: `[script]` = runs from a terminal · `[file]` = created/edited ·
+> `[manual]` = one-time human action.
 
 ---
 
-## Phase 0 — System & Environment Bootstrap
+## Shipped History — v0.1.0 (Phases 0 – 8)
 
-**Goal:** Before a single line of app code is written, prove the machine can
-actually run the project, and produce a working virtual environment with all
-dependencies pinned.
+> All eight phases are complete. Tag `v0.1.0` was cut on commit `bf30a8a`
+> and pushed to origin. Full step-by-step notes are preserved in git history
+> (see the pre-compression version of this file).
 
-### Step 0.1 — Hardware / OS spec check `[script]`
+### Phase 0 — Environment Bootstrap ✅
 
-Create `scripts/check_system.py`. It must report and gate on:
+**Goal:** Prove the machine can run the project before writing any app code.
 
-- **OS & arch** — `platform.system()`, `platform.machine()`. Warn if not
-  Windows / Linux / macOS on x86_64 or arm64.
-- **Python version** — require `>= 3.10` (we use PEP 604 unions, `match`,
-  modern typing). Hard-fail otherwise.
-- **CPU cores** — `os.cpu_count()`. Warn if `< 4` (Gemma 3:4b will be slow).
-- **RAM** — via `psutil.virtual_memory().total`. Warn if `< 8 GB`, hard-fail
-  if `< 4 GB`.
-- **Free disk** — `shutil.disk_usage(".")`. Warn if `< 10 GB` free
-  (Gemma 3:4b ~3.3 GB, plus venv).
-- **GPU detection (optional)** — try `nvidia-smi` (NVIDIA), `rocminfo` (AMD),
-  detect Apple Silicon. Print which Ollama backend will be used.
-- **Network reachability** — `HEAD https://ollama.com` and
-  `HEAD https://registry.ollama.ai`. Soft warn on failure.
-
-Output: a colored summary table and an exit code (`0` ok, `1` warning, `2`
-fatal).
-
-**Done when:** running `python scripts/check_system.py` on a fresh clone
-prints a green "System OK" or a clear actionable message.
-
-### Step 0.2 — Ollama presence check `[script]`
-
-Add to `scripts/check_ollama.py`:
-
-- **API-first probe.** Try `GET {OLLAMA_HOST}/api/tags` (timeout 2 s). A
-  reachable server proves Ollama is installed *and* running, independent of
-  the current shell's `PATH`.
-- **Binary fallback only when the API is unreachable.** Use
-  `shutil.which("ollama")` plus Windows-installer fallback paths
-  (`%LOCALAPPDATA%\Programs\Ollama\ollama.exe`, `%ProgramFiles%\Ollama\ollama.exe`)
-  because the Windows installer updates `PATH` only for *new* shells, so an
-  already-open terminal would otherwise falsely report `MISSING_OLLAMA`.
-- If binary missing → print the OS-specific install hint
-  (Windows: winget cmd, macOS: brew/dmg, Linux: curl one-liner).
-- If binary found but API unreachable → instruct the user to run
-  `ollama serve` (or launch the Windows app).
-- If API reachable but `MODEL_NAME` (default `gemma3:4b`) not in the list →
-  print exactly `ollama pull gemma3:4b`.
-- **Do not auto-pull.** Pulling is several GB; it must be a conscious user
-  action.
-
-**Done when:** the script ends with one of four states clearly printed:
-`MISSING_OLLAMA`, `OLLAMA_DOWN`, `MODEL_MISSING`, or `READY`.
-
-### Step 0.3 — Virtualenv bootstrap `[script]`
-
-Create `scripts/bootstrap_env.py` and a thin `scripts/bootstrap.ps1` /
-`scripts/bootstrap.sh` wrapper. It must:
-
-1. Detect if `.venv/` exists. If not, run `python -m venv .venv`.
-2. Resolve the venv's Python executable (Windows: `.venv\Scripts\python.exe`,
-   POSIX: `.venv/bin/python`).
-3. Upgrade pip: `python -m pip install --upgrade pip`.
-4. Install from `requirements.txt` (created in Step 0.4) **only if** the
-   installed package versions don't already satisfy the pins (use
-   `pip install --dry-run` parsing or just always `pip install -r`).
-5. Print a "next step" hint telling the user how to activate the venv on
-   their shell.
-
-**Done when:** running the wrapper on a fresh clone produces a venv with all
-deps installed and prints the activation command.
-
-### Step 0.4 — Requirements & lock files `[file]`
-
-Create:
-
-- `requirements.txt` — runtime pins:
-  ```
-  streamlit>=1.39,<2
-  ollama>=0.6,<1
-  python-dotenv>=1.0,<2
-  psutil>=5.9
-  ```
-- `requirements-dev.txt` — dev tooling: `ruff`, `pytest`, `pytest-mock`,
-  `mypy` (optional).
-- `.python-version` — `3.11` (recommended interpreter).
-
-**Done when:** `pip install -r requirements.txt` in a clean venv succeeds.
-
-### Step 0.5 — Repo hygiene files `[file]`
-
-- `.gitignore` — `.venv/`, `__pycache__/`, `.env`, `*.log`, `.streamlit/secrets.toml`.
-- `.editorconfig` — 4-space indent, LF, UTF-8.
-- `.env.example` — exactly as specified in PROJECT.md §8.
-- `LICENSE` — MIT (placeholder).
-
-**Done when:** `git status` on a fresh clone after running bootstrap is clean.
-
-### Step 0.6 — One-shot installer `[script]`
-
-Create `scripts/install_defaults.py` that orchestrates Steps 0.1, 0.3, and 0.2
-in sequence and installs whatever can be installed safely without elevation:
-
-1. Run `check_system.py` — fail only on FATAL, continue on warnings.
-2. Run `bootstrap_env.py` — create `.venv` and install Python deps if absent.
-   Pass `--dev` through with `--dev`.
-3. Run `check_ollama.py` (in-process via import) — get the current state.
-4. If state is `MODEL_MISSING`: prompt the user (or auto-confirm with
-   `--yes` / `-y`) and run `ollama pull <MODEL_NAME>`. Use the absolute path
-   resolved by `find_ollama_binary()` so the pull works even on stale shells.
-5. If state is `MISSING_OLLAMA` or `OLLAMA_DOWN`: print remediation and exit
-   with code 1 — the script never installs the Ollama binary itself and
-   never starts the server.
-6. Re-probe after the pull and exit `0` only when the final state is `READY`.
-
-Flags: `--yes/-y`, `--dev`, `--skip-system`, `--skip-bootstrap`.
-
-**Done when:** `python scripts/install_defaults.py --yes` on a freshly
-bootstrapped machine (Ollama already installed and running) ends with
-`READY` and exit code 0.
-
-### Phase 0 Exit Criteria
-
-- [x] `python scripts/check_system.py` → green (warns on missing GPU — expected on CPU-only machine).
-- [x] `python scripts/check_ollama.py` correctly detects Ollama state via the `/api/tags` probe (API-first gating; binary check is fallback only).
-- [x] Bootstrap script produces a working `.venv` end-to-end on Windows (`streamlit`, `ollama`, `python-dotenv`, `psutil` installed).
-- [x] All hygiene files created (`.gitignore`, `.editorconfig`, `.env.example`, `LICENSE`, `requirements*.txt`, `.python-version`). Commit pending Phase 1 Step 1.4.
-- [x] `python scripts/install_defaults.py --yes` runs all Phase-0 checks and pulls `gemma3:4b` automatically when missing, ending with `READY`.
-
-> **Status: Phase 0 complete.** Move to Phase 1.
+| Deliverable | Result |
+|---|---|
+| `scripts/check_system.py` | OS/arch, Python ≥ 3.10, CPU, RAM (≥ 4 GB hard), disk, GPU detection, network ping |
+| `scripts/check_ollama.py` | API-first probe → binary fallback; exits `MISSING_OLLAMA / OLLAMA_DOWN / MODEL_MISSING / READY` |
+| `scripts/bootstrap_env.py` + wrappers | Creates `.venv`, upgrades pip, installs `requirements.txt` |
+| `requirements.txt` / `requirements-dev.txt` | streamlit, ollama, python-dotenv, psutil (runtime); ruff, pytest, mypy (dev) |
+| `scripts/install_defaults.py` | Orchestrates 0.1 → 0.3 → 0.2; `--yes` auto-pulls model; exits 0 only when `READY` |
+| Hygiene files | `.gitignore`, `.editorconfig`, `.env.example`, `LICENSE` |
 
 ---
 
-## Phase 1 — Empty File Scaffolding
+### Phase 1 — Empty File Scaffolding ✅
 
-**Goal:** Every file from PROJECT.md §5 exists on disk, with a header comment
-explaining its purpose and TODO markers for the symbols that will live there.
-After this phase the project **imports cleanly** but **does nothing**.
+**Goal:** Every module exists and imports cleanly; no logic yet.
 
-### Step 1.1 — Create the package skeleton `[file]`
-
-Create the following files, **each containing only a docstring and `# TODO`
-stubs** — no logic yet.
-
-```
-auto_debate/
-├── app.py
-├── engine.py
-├── llm.py
-├── prompts.py
-├── config.py
-├── scripts/
-│   ├── __init__.py
-│   ├── check_system.py
-│   ├── check_ollama.py
-│   └── bootstrap_env.py
-├── tests/
-│   ├── __init__.py
-│   ├── test_config.py
-│   ├── test_prompts.py
-│   ├── test_engine.py
-│   └── test_llm.py
-├── requirements.txt
-├── requirements-dev.txt
-├── .env.example
-├── .gitignore
-├── README.md
-├── PROJECT.md         # already exists
-└── ROADMAP.md         # already exists
-```
-
-### Step 1.2 — File header template
-
-Every `.py` file starts with:
-
-```python
-"""
-<module name> — <one-line purpose>.
-
-Part of the Auto Debate project. See PROJECT.md and ROADMAP.md.
-"""
-# TODO(phase-N): <what gets added here>
-```
-
-Concrete planned contents (still empty in Phase 1):
-
-| File           | Will contain (later phases)                                                        |
-| -------------- | ---------------------------------------------------------------------------------- |
-| `config.py`  | `Settings` dataclass, `load_settings()`                                        |
-| `llm.py`     | `OllamaClient`, `stream_chat()`, `ensure_model_available()`                  |
-| `prompts.py` | `OFFENDER_SYSTEM`, `DEFENDER_SYSTEM`, `build_system_prompt(role, topic)`     |
-| `engine.py`  | `DebateTurn` dataclass, `DebateEngine` class with `run_one_turn()` generator |
-| `app.py`     | Streamlit page, sidebar, start/stop buttons, chat-bubble loop                      |
-
-### Step 1.3 — Smoke import test `[script]`
-
-Add `tests/test_smoke.py` that does `import config, llm, prompts, engine` and
-asserts `True`. This guarantees the empty scaffolding is at least syntactically
-valid Python.
-
-### Step 1.4 first commit `[manual]`
-
-- first compit to `main` with all files empty but present, and the smoke test.
-- https://github.com/Sotiris01/Auto-Debate---Two-Agent-Local-LLM-Debate-App.git
-- sotiris.mp@gmail.com
-
-> Local first commit landed on `main` as `[P1] scaffold: empty modules +
-> smoke test` (28 files, identity `sotiris.mp@gmail.com`). Pushing to the
-> GitHub remote is left as a conscious manual action.
-
-### Phase 1 Exit Criteria
-
-- [x] `pytest -q tests/test_smoke.py` passes (1 passed in 0.06s).
-- [x] `streamlit run app.py` launches and shows a blank page (no crash) —
-  verified headless on port 8599.
-- [x] No module has implementation logic yet — only docstrings & TODOs.
-
-> **Status: Phase 1 complete.** Move to Phase 2.
+Modules created with docstring + `# TODO` stubs: `config.py`, `llm.py`,
+`prompts.py`, `engine.py`, `app.py`, `tests/__init__.py`,
+`tests/test_smoke.py`, `scripts/__init__.py`.
+First commit pushed to `main` (`sotiris.mp@gmail.com`).
 
 ---
 
-## Phase 2 — Configuration Layer (`config.py`)
+### Phase 2 — Configuration Layer ✅
 
-**Goal:** A single, typed source of truth for all runtime knobs, loaded once.
+**Goal:** Single typed source of truth for all runtime knobs.
 
-### Step 2.1 — Define `Settings`
-
-A `@dataclass(frozen=True)` with fields matching `.env.example`:
-`ollama_host: str`, `model_name: str`, `max_turns: int`, `temperature: float`,
-`top_p: float`, `word_limit: int`.
-
-### Step 2.2 — Implement `load_settings()`
-
-- Use `python-dotenv` to load `.env` if present.
-- Read each var with `os.getenv` + a typed default.
-- Validate: `max_turns >= 1`, `0 < temperature <= 2`, `0 < top_p <= 1`,
-  `word_limit >= 30`, `ollama_host` starts with `http`.
-- Raise a single `ConfigError` with all problems concatenated.
-
-### Step 2.3 — Tests `tests/test_config.py`
-
-- Default values when env empty.
-- Override via env var.
-- Validation errors for each bad field.
-
-### Phase 2 Exit Criteria
-
-- [x] `from config import load_settings; load_settings()` returns a valid
-  `Settings` on a clean `.env` (verified — defaults match `.env.example`).
-- [x] All validation tests pass (`pytest -q tests/test_config.py` →
-  16 passed in 0.20s).
-
-> **Status: Phase 2 complete.** Move to Phase 3.
+- `Settings` frozen dataclass: `ollama_host`, `model_name`, `max_turns`,
+  `temperature`, `top_p`, `word_limit`.
+- `load_settings()` via `python-dotenv` + `os.getenv`; raises `ConfigError`
+  with all validation failures concatenated.
+- 16 unit tests in `tests/test_config.py` — all green.
 
 ---
 
-## Phase 3 — Prompt Layer (`prompts.py`)
+### Phase 3 — Prompt Layer ✅
 
-**Goal:** Centralized, testable prompt construction. UI and engine never write
-prompt strings inline.
+**Goal:** Centralized, testable prompt strings; UI/engine never inline strings.
 
-### Step 3.1 — Constants
-
-`OFFENDER_SYSTEM_TEMPLATE` and `DEFENDER_SYSTEM_TEMPLATE` — the exact
-strings from PROJECT.md §6, with `{topic}` and `{word_limit}` placeholders.
-
-### Step 3.2 — `build_system_prompt(role: Literal["offender","defender"], topic: str, word_limit: int) -> str`
-
-- Sanitize `topic`: strip, collapse whitespace, truncate to 300 chars, reject
-  if empty after stripping.
-- Format the right template.
-
-### Step 3.3 — `OPENING_USER_MESSAGE`
-
-Constant string used to kick off the offender on turn 1: `"Open the debate with your first argument."`
-
-### Step 3.4 — Tests `tests/test_prompts.py`
-
-- Each role produces a string containing the topic.
-- Empty / whitespace-only topic → `ValueError`.
-- Topic > 300 chars is truncated.
-- The two role prompts differ.
-
-### Phase 3 Exit Criteria
-
-- [x] `build_system_prompt` covered by tests, all green
-  (`pytest -q tests/test_prompts.py` → 19 passed; full suite 35 passed in 0.17s).
-
-> **Status: Phase 3 complete.** Move to Phase 4.
+- `OFFENDER_SYSTEM_TEMPLATE`, `DEFENDER_SYSTEM_TEMPLATE` with `{topic}` /
+  `{word_limit}` placeholders.
+- `build_system_prompt(role, topic, word_limit)` — sanitizes, truncates to
+  300 chars, rejects empty topics.
+- `OPENING_USER_MESSAGE` constant kicks off turn 1.
+- 19 unit tests in `tests/test_prompts.py` — all green.
 
 ---
 
-## Phase 4 — LLM Layer (`llm.py`)
+### Phase 4 — LLM Layer ✅
 
-**Goal:** A thin, mockable wrapper around Ollama. **No business logic here.**
+**Goal:** Thin, mockable Ollama wrapper; no business logic.
 
-### Step 4.1 — `OllamaClient`
-
-Class wrapping `ollama.Client(host=...)`, constructed from `Settings`.
-
-### Step 4.2 — `ensure_model_available(model_name: str) -> None`
-
-- Call `client.list()`, check if `model_name` is present.
-- If missing: raise `ModelNotFoundError(model_name)` with the exact
-  `ollama pull` command in the message. **Do not auto-pull.**
-
-### Step 4.3 — `stream_chat(messages, *, options) -> Iterator[str]`
-
-- Calls `client.chat(model=..., messages=..., stream=True, options=...)`.
-- Yields `chunk["message"]["content"]` only.
-- Wraps connection errors in `OllamaUnavailableError` with a friendly message.
-
-### Step 4.4 — Options builder
-
-Helper `chat_options(settings) -> dict` that returns
-`{"temperature": ..., "top_p": ..., "num_predict": <derived from word_limit>}`.
-
-### Step 4.5 — Tests `tests/test_llm.py`
-
-Use `pytest-mock` to patch `ollama.Client`. Verify:
-
-- `ensure_model_available` raises when list is empty.
-- `stream_chat` yields the right strings from a fake stream.
-- Connection refused → `OllamaUnavailableError`.
-
-### Phase 4 Exit Criteria
-
-- [x] All tests green with mocks (`pytest -q tests/test_llm.py` → 17 passed;
-  full suite **52 passed in 1.91s**, no live Ollama needed).
-- [x] One manual smoke run against real Ollama succeeds — `scripts/smoke_llm.py`
-  hit `gemma3:4b`, `ensure_model_available` returned OK, and `stream_chat`
-  streamed `"Hi there!"` across 3 chunks.
-
-> **Status: Phase 4 complete.** Move to Phase 5.
+- `OllamaClient` wraps `ollama.Client(host=...)`.
+- `ensure_model_available()` → raises `ModelNotFoundError` with `ollama pull`
+  command if model absent. Never auto-pulls.
+- `stream_chat()` → yields `chunk["message"]["content"]`; wraps errors in
+  `OllamaUnavailableError`.
+- `chat_options(settings)` → `{temperature, top_p, num_predict=word_limit*2}`.
+- 17 unit tests via `pytest-mock` (no live Ollama needed) + smoke run verified.
 
 ---
 
-## Phase 5 — Debate Engine (`engine.py`)
+### Phase 5 — Debate Engine ✅
 
-**Goal:** Pure orchestration. Knows nothing about Streamlit. Drivable from a
-plain Python script.
+**Goal:** Pure orchestration, drivable from plain Python (no Streamlit).
 
-### Step 5.1 — `DebateTurn` dataclass
-
-`speaker: Literal["offender","defender"]`, `content: str`, `index: int`.
-
-### Step 5.2 — `DebateEngine.__init__(settings, llm_client, topic)`
-
-- Validate topic via `prompts.build_system_prompt`.
-- Build two message histories `_offender_msgs`, `_defender_msgs`, each
-  starting with their respective system message.
-- Seed the offender with the `OPENING_USER_MESSAGE` user turn.
-
-### Step 5.3 — `run_one_turn(speaker) -> Iterator[str]` (generator)
-
-- Picks the right history.
-- Streams tokens via `llm_client.stream_chat(...)`.
-- Yields each token to the caller.
-- After the stream ends, calls `_commit_turn(speaker, full_text)`:
-  - Appends `{"role": "assistant", "content": full_text}` to the speaker's
-    own history.
-  - Appends `{"role": "user", "content": full_text}` to the opponent's
-    history (mirroring trick — required by chat models that need alternating
-    roles).
-
-### Step 5.4 — `run(stop_check: Callable[[], bool]) -> Iterator[Tuple[str, str]]`
-
-Top-level loop that yields `(speaker, token)` for `max_turns * 2` turns,
-checking `stop_check()` between every token and returning early on True.
-
-### Step 5.5 — Transcript helpers
-
-- `transcript() -> list[DebateTurn]` returns the committed history.
-- `to_markdown()` for export (used in Phase 8).
-
-### Step 5.6 — Tests `tests/test_engine.py`
-
-With a mocked `llm_client` that yields a fixed list of tokens:
-
-- After 1 turn, offender history has 2 messages, defender history has 2
-  (system + user-mirror).
-- Stop callback returning `True` halts within one token.
-- Roles always alternate.
-
-### Phase 5 Exit Criteria
-
-- [x] A small `python -m scripts.dry_run "<topic>"` (added in this phase) prints a
-  full debate to stdout with no Streamlit involved — verified live against
-  `gemma3:4b` for `--max-turns 1` (offender + defender each streamed cleanly).
-- [x] Engine unit tests green (`pytest -q tests/test_engine.py` → 13 passed;
-  full suite **65 passed in 1.86s**).
-
-> **Status: Phase 5 complete.** Move to Phase 6.
+- `DebateTurn(speaker, content, index)` dataclass.
+- `DebateEngine.__init__` builds per-agent message histories with system
+  prompts; seeds offender with `OPENING_USER_MESSAGE`.
+- `run_one_turn(speaker)` generator — streams tokens, then mirrors the full
+  turn into the opponent's history as a `"user"` message.
+- `run(stop_check)` top-level loop — `max_turns` alternating turns, checks
+  `stop_check()` between every token.
+- `transcript()` / `to_markdown()` export helpers.
+- 13 unit tests; `scripts/dry_run.py` validates live debate to stdout.
 
 ---
 
-## Phase 6 — Streamlit UI (`app.py`)
+### Phase 6 — Streamlit UI ✅
 
-**Goal:** Minimal, responsive UI that wires the engine to chat bubbles with
-real streaming and a working Stop button.
+**Goal:** Responsive UI wiring the engine to chat bubbles with real streaming.
 
-### Step 6.1 — Page setup
-
-- `st.set_page_config(page_title="Auto Debate", page_icon="🗣️", layout="wide")`.
-- Title, short subtitle.
-
-### Step 6.2 — Sidebar
-
-- Model selector (`gemma3:1b` / `gemma3:4b` / `gemma3:12b`).
-- Max turns slider (1–20).
-- Temperature slider (0.1–1.5).
-- "Check Ollama" button → calls `ensure_model_available`, shows status badge.
-
-### Step 6.3 — Session state init
-
-Initialize on first run: `messages=[]`, `running=False`, `stop_flag=False`,
-`engine=None`, `topic=""`.
-
-### Step 6.4 — Topic input + Start / Stop buttons
-
-- `st.text_input("Debate topic", max_chars=300)`.
-- Two `st.button`s side-by-side. Disable Start while `running`. Disable Stop
-  while not `running`.
-
-### Step 6.5 — Replay loop (top of page on every rerun)
-
-Iterate `st.session_state.messages` and render each in
-`st.chat_message(speaker, avatar=...)`.
-
-### Step 6.6 — Live streaming loop
-
-When Start is pressed:
-
-1. Set `running=True`, `stop_flag=False`.
-2. Build engine via `DebateEngine(...)`.
-3. For each turn, open `st.chat_message(speaker, avatar=...)`, create a
-   `placeholder = st.empty()`, accumulate `buf`, update via
-   `placeholder.markdown(buf + "▌")` for cursor effect.
-4. After each turn append a `{role, content}` dict to
-   `st.session_state.messages` so it survives reruns.
-5. Between every token check `st.session_state.stop_flag`; break if set.
-6. Finally set `running=False` and `st.rerun()`.
-
-### Step 6.7 — Stop button wiring
-
-`if stop_clicked: st.session_state.stop_flag = True`. The currently running
-generator (running on the same script execution) sees it on the next token.
-
-### Step 6.8 — Error UI
-
-Catch `OllamaUnavailableError` and `ModelNotFoundError`; render `st.error`
-with the exact remediation command.
-
-### Phase 6 Exit Criteria
-
-- [x] Full debate runs end-to-end with visible streaming — `app.py` wires
-  `DebateEngine` into `st.chat_message` placeholders that update via
-  `placeholder.markdown(buf + " ▌")` for a typewriter cursor effect; each
-  committed turn is appended to `st.session_state.messages` so it survives
-  reruns. App boots cleanly headless on `http://localhost:8600` (HTTP 200).
-- [x] Stop halts within one token — Stop button sets `stop_flag=True` and
-  triggers a Streamlit rerun, which destroys the live generator; the engine's
-  `stop_check` callback also short-circuits the inner `run_one_turn` loop on
-  the next token.
-- [x] Refreshing the page resets cleanly — all state lives in
-  `st.session_state` initialized via `_init_state()`; a 🧹 Clear button wipes
-  messages/topic/last_error.
-- [x] Errors from a stopped Ollama server show a helpful message, not a
-  stack trace — `_run_debate` catches `OllamaUnavailableError` and
-  `ModelNotFoundError` and renders them via `st.error` with the exact
-  `ollama serve` / `ollama pull <model>` remediation. Sidebar **Check Ollama**
-  button surfaces the same diagnostics on demand.
-
-> **Status: Phase 6 complete.** Move to Phase 7.
+- `st.set_page_config` wide layout, sidebar (model, turns, temperature,
+  Check Ollama button), topic input, Start/Stop buttons.
+- Session-state-backed replay loop on every rerun.
+- Live streaming with `placeholder.markdown(buf + " ▌")` cursor effect.
+- Stop button sets `stop_flag=True` → engine aborts within one token.
+- `st.error` surfaces `OllamaUnavailableError` / `ModelNotFoundError` with
+  exact remediation commands. Clear (🧹) button resets session.
 
 ---
 
-## Phase 7 — Hardening, QA & Polish
+### Phase 7 — Hardening, QA & Polish ✅
 
-### Step 7.1 — Logging
+**Goal:** Production-quality logging, lint, type checking, and full QA matrix.
 
-Add a small `logging` config in `config.py`. Engine logs every committed turn
-at INFO; LLM layer logs request/response sizes at DEBUG. Logs go to
-`logs/auto_debate.log` (rotating, 1 MB × 3).
-
-**Done.** `config.configure_logging()` installs an idempotent rotating file
-handler (`logs/auto_debate.log`, 1 MB × 3) plus a console handler, format
-`"%(asctime)s %(levelname)-7s %(name)s — %(message)s"`. Re-entry is guarded
-by a marker attribute on the root logger. `engine._commit_turn` logs each
-committed turn at INFO (`speaker`, `chars`, `words`); `llm.OllamaClient`
-logs request/response sizes at DEBUG inside `stream_chat`. `app.py` calls
-`configure_logging()` once before `st.set_page_config(...)`.
-
-### Step 7.2 — Linting & formatting
-
-- `ruff check .` and `ruff format .` clean.
-- Add `pyproject.toml` `[tool.ruff]` config (line-length 100).
-
-**Done.** `pyproject.toml` declares `[tool.ruff]` (line-length 100,
-target-version py310, extend-exclude .venv/logs/__pycache__) and
-`[tool.ruff.lint]` selecting E/W/F/I/B/UP/SIM/RUF with E501 ignored, plus
-per-file-ignores (`tests/**=B011`, `scripts/**=E402`). `[tool.ruff.format]`
-uses double quotes. `ruff check .` and `ruff format --check .` both report
-clean against 18 files.
-
-### Step 7.3 — Type checking (optional)
-
-`mypy --strict auto_debate/` clean on `config.py`, `prompts.py`, `llm.py`,
-`engine.py`. UI module excluded (Streamlit's stubs are noisy).
-
-**Done.** `pyproject.toml` `[tool.mypy]` runs strict on the four core
-modules with `ignore_missing_imports` overrides for `ollama` and `dotenv`.
-`mypy` reports `Success: no issues found in 4 source files`.
-
-### Step 7.4 — Manual QA matrix
-
-Run through each scenario and tick off:
-
-- [x] **Ollama not installed.** `scripts/check_ollama.py` returns
-  `MISSING_OLLAMA` (exit 4). `run.ps1` aborts with the install hint
-  (`https://ollama.com/download`) before launching Streamlit.
-- [x] **Ollama installed but not running.** `OllamaClient.list_local_models`
-  catches connection errors and raises `OllamaUnavailableError`; `app.py`
-  renders an `st.error` with the exact `ollama serve` remediation. Verified
-  by `tests/test_llm.py::test_list_local_models_unavailable`.
-- [x] **Model not pulled.** `validate_model_available()` raises
-  `ModelNotFoundError("ollama pull <model>")`; the sidebar **Check Ollama**
-  button surfaces the same diagnostic. Verified by
-  `tests/test_llm.py::test_validate_model_available_missing`.
-- [x] **Topic empty / 1 char / 301 chars.** `prompts.sanitize_topic`
-  strips/validates topics; the Streamlit form uses
-  `prompts.MAX_TOPIC_LENGTH` (300) as `max_chars`, so the 301-char case is
-  prevented at the input layer and the empty case is rejected by
-  `sanitize_topic` (raises `ValueError`). Verified by
-  `tests/test_prompts.py::test_sanitize_topic_rejects_empty` and
-  `::test_sanitize_topic_truncates`.
-- [x] **Stop pressed mid-first-token.** `app.py` registers `stop_check`
-  reading `st.session_state.stop_flag`; `engine.run_one_turn` consults it
-  before yielding each token and aborts without committing the turn.
-  Verified by `tests/test_engine.py::test_run_one_turn_stop_check_aborts`.
-- [x] **Stop pressed mid-debate.** Same `stop_flag` + `stop_check` plumbing
-  applies between turns inside `engine.run`; verified end-to-end in the QA
-  pass that produced commit `547c41f` (Phase 6.1 fixes).
-- [x] **Max turns reached naturally.** `engine.run` iterates exactly
-  `settings.max_turns` turns; verified by
-  `tests/test_engine.py::test_run_yields_full_debate_in_order`.
-- [x] **Switching model in sidebar mid-session.** Sidebar selectbox writes
-  to `st.session_state.model_name`; `_runtime_settings()` rebuilds
-  `Settings` on each rerun, so the next turn picks up the new model.
-  Pre-existing transcript is preserved (lives in `st.session_state.messages`).
-- [x] **Reload browser tab while debate is running.** Streamlit destroys
-  the script execution on reload; `_init_state()` re-runs and resets
-  `stop_flag`/`is_running` while preserving `messages` (chat history is
-  rendered from session state on every rerun).
-
-### Step 7.5 — Performance sanity
-
-- Measure tokens/sec on `gemma3:4b`. Document in README.
-- Verify `num_predict` cap prevents runaway generations.
-
-**Done.** `scripts/bench.py` runs one offender turn against the live model
-and reports chunks, chars, words and elapsed time, plus the
-`num_predict` cap derived from `chat_options(settings)` (== `word_limit *
-2`). Local run on `gemma3:4b` (CPU): one turn produced **87 words / 608
-chars in ~14 s** (engine commit log timestamps), i.e. **~6 words/s** of
-sustained throughput, with `num_predict=236` clipping the response well
-under the 150-word soft cap. README documents the figure.
-
-### Phase 7 Exit Criteria
-
-- [x] All QA matrix items pass.
-- [x] Lint + tests green in one command (`scripts/ci.ps1`).
-
-> **Status: Phase 7 complete.** Move to Phase 8.
+| Item | Detail |
+|---|---|
+| Logging | `config.configure_logging()` — RotatingFileHandler `logs/auto_debate.log`, 1 MB × 3; idempotent via root-logger marker |
+| Lint/format | `pyproject.toml` ruff config (line-length 100, E/W/F/I/B/UP/SIM/RUF, E501 ignored); clean on 18 files |
+| Type checking | mypy strict on `config`, `prompts`, `llm`, `engine`; `Success: no issues found in 4 source files` |
+| QA matrix | 9 scenarios verified: Ollama missing/down, model missing, empty/overlong topic, stop mid-token, stop mid-debate, max-turns, sidebar model switch, browser reload |
+| Performance | `scripts/bench.py` — `gemma3:4b` CPU: ~6 words/s, `num_predict=236` (word_limit×2) prevents runaway output |
+| CI | `scripts/ci.ps1` — ruff + ruff format + mypy + pytest in one command |
 
 ---
 
-## Phase 8 — Documentation & Release
+### Phase 8 — Documentation & Release ✅
 
-### Step 8.1 — README.md
+**Goal:** Ship v0.1.0 with complete docs and a transcript export feature.
 
-Sections: What it is, 30-second demo GIF, Requirements, Install, Run,
-Troubleshooting, Architecture diagram (copy from PROJECT.md), Roadmap link.
+| Item | Detail |
+|---|---|
+| README.md | Status header, What-it-is, Quick start, Requirements, Architecture diagram, Project layout, Performance, Troubleshooting matrix, Development notes, Roadmap link |
+| In-app help | `st.expander("How it works")` — two-agent setup, mirroring trick, local-only data flow, Stop/Clear/Download semantics, GitHub link |
+| Transcript export | `st.download_button("⬇️ Download transcript (.md)")` — built from session state; survives reruns |
+| Release | All 6 PROJECT.md §13 DoD items ticked; annotated tag `v0.1.0` cut and pushed to origin |
 
-**Done.** [README.md](README.md) now has: status header (v0.1.0), **What
-it is** summary, **Quick start** (installer + `run.ps1`), **Requirements**,
-**Architecture** ASCII diagram (mirrors PROJECT.md §4), **Project layout**
-table, **Performance** numbers from `scripts/bench.py`, a
-**Troubleshooting** matrix mapping symptoms to fixes (`MISSING_OLLAMA`,
-`OLLAMA_DOWN`, `MODEL_MISSING`, slow debates, etc.), **Development** notes
-(`scripts/ci.ps1`, `scripts/dry_run.py`), and a **Roadmap** link. Demo GIF
-is left as a future addition (recording it requires manual screen capture).
-
-### Step 8.2 — In-app help
-
-A collapsible `st.expander("How it works")` on the main page summarizing the
-two-agent setup and linking to the GitHub repo.
-
-**Done.** [app.py](app.py) renders an `st.expander("How it works")` at the
-bottom of the page that explains the two-agent setup, the
-alternating-role mirroring trick, the local-only data flow, the Stop /
-Clear / Download semantics, and links to the GitHub repository.
-
-### Step 8.3 — Transcript export (stretch)
-
-Button "Download transcript (.md)" that calls `engine.to_markdown()` and
-serves it via `st.download_button`.
-
-**Done.** [app.py](app.py) shows a **⬇️ Download transcript (.md)**
-`st.download_button` whenever a non-empty transcript exists and the
-debate is not currently running. The Markdown body is built from
-`st.session_state.messages` (the same data `engine.to_markdown` consumes)
-so the export survives Streamlit reruns without keeping the engine
-instance pinned to session state. File is named
-`auto_debate_transcript.md` with `text/markdown` MIME.
-
-### Step 8.4 — Tagging
-
-`git tag v0.1.0` once Definition of Done in PROJECT.md §13 is fully checked.
-
-**Done.** All six items in [PROJECT.md §13](PROJECT.md) are ticked.
-Annotated tag `v0.1.0` cut on the Phase 8 commit and pushed to origin.
-
-### Phase 8 Exit Criteria
-
-- [x] All boxes in PROJECT.md §13 ticked.
-- [x] README renders correctly on GitHub.
-- [x] `v0.1.0` tag pushed.
-
-> **Status: Phase 8 complete. Auto Debate v0.1.0 shipped.**
+**Commit:** `bf30a8a` · **Tag:** `v0.1.0` · **Tests:** 65/65 passing
 
 ---
 
-## Cross-Phase Conventions
+## Future Phases — v0.2 Track ("Memory & Personas")
 
-- **Branch per phase:** `phase/0-bootstrap`, `phase/1-scaffold`, …, merged to
-  `main` only when the phase exit criteria are green.
-- **Commit prefix:** `[P3]` for Phase 3 commits, etc.
-- **No phase skipping.** A phase that fails its exit criteria blocks the next
-  one.
-- **Tests live next to behavior.** New logic ships with at least one test in
-  the same PR.
+> **Motivation.** [report.md](report.md) graded the v0.1.0 debate **3.6 / 5**.
+> The two weakest dimensions were **argument progression** (2/5 — agents
+> loop after ~Turn 12) and **factual grounding** (2/5 — no concrete
+> evidence, dates, or named sources). The strongest were persona
+> distinctiveness (5/5) and on-topic adherence (4/5). The v0.2 phase block
+> targets the weak dimensions while preserving what works, and lays
+> structural groundwork for arbitrary personalities in v0.3.
+>
+> **Prior art surveyed.** AutoGen (Microsoft), LangGraph debate DAGs
+> (`Adu-2115/Debate-DAG-LangGraph`), `wobushannes/SynthAgora` (memory + no-
+> repetition rule), `aliasad059/RedDebate` (long-term memory + diverse
+> persona prompts), `gael55x/LayeredMemoryTrader` (short/mid/long memory).
+> Common pattern: each agent owns a structured memory document that is
+> read before generating, then mutated after each turn via a dedicated
+> "reflection" prompt — distinct from the speaking prompt.
+>
+> **Phase block design rules.**
+> 1. **Composable prompts first.** Build the prompt assembly layer before
+>    adding memory or web search, so every later feature plugs into a
+>    single `PromptComposer` instead of growing string templates.
+> 2. **Memory before research.** Define the memory file schema and
+>    read/write contract before adding web search, so the search phase
+>    just feeds an existing slot.
+> 3. **No silent regressions.** v0.1.0 features (single-file run, Stop
+>    button, transcript export, 65 tests) must keep passing after every
+>    new phase. CI gate (`scripts/ci.ps1`) blocks merges otherwise.
+> 4. **Each phase is feature-flagged.** New behaviour is opt-in via
+>    `Settings` flags (`memory_enabled`, `web_research_enabled`,
+>    `closing_round_enabled`, `repetition_guard_enabled`) so that the
+>    minimal v0.1.0 path remains the default until v0.2.0 ships.
+
+---
+
+### Phase 9 — Composable Prompt Architecture ✅
+
+**Goal:** Refactor `prompts.py` from monolithic role templates into a
+layered composer (role + persona + behavior + memory-injection slot) so
+every later phase plugs into one assembly point.
+
+**Done.** `prompts.py` was replaced by a `prompts/` package containing
+`fragments.py` (typed `RoleFragment` / `PersonaFragment` /
+`BehaviorFragment` dataclasses), `composer.py` (`PromptComposer` +
+`PromptCompositionError`), and `registry.py` (JSON loader for
+`prompts/library/{roles,personas,behaviors}/*.json`). The composer
+inserts blocks in the fixed order role → persona → behavior → optional
+`<MEMORY>` block, skipping any block whose directive list is empty.
+
+| Step | Result |
+|---|---|
+| 9.1 — fragment types | `RoleFragment`, `PersonaFragment`, `BehaviorFragment` in `prompts/fragments.py`; placeholders auto-extracted from `system_text`. |
+| 9.2 — `PromptComposer` | Frozen dataclass, single `compose(...)` entry; raises `PromptCompositionError` on unknown placeholders or non-positive `word_limit`. |
+| 9.3 — Registry | JSON files under `prompts/library/`; `list_fragments(kind)` + `load_fragment(kind, name)` plus typed `load_role` / `load_persona` / `load_behavior` helpers with safe path-traversal rejection. |
+| 9.4 — Engine + UI | `DebateEngine` accepts `persona=` / `behavior=` (default `NEUTRAL` / `STANDARD`); sidebar gained two `st.selectbox`es populated from the registry. |
+| 9.5 — Compat shim | `build_system_prompt(role, topic, word_limit)` is a thin wrapper around `PromptComposer` with default fragments — output is byte-identical to v0.1.0 (regression-locked test). |
+| 9.6 — Tests | 20 new unit tests in `tests/test_prompt_composer.py`: regression vs v0.1.0, persona/behavior overlay rendering, ordering, memory block, placeholder validation, registry list/load round-trip, malformed JSON, path traversal. |
+
+**Phase 9 Exit Criteria**
+- [x] `prompts/` package replaces the old single-file module; old import
+  `from prompts import build_system_prompt` still works (shim).
+- [x] At least 1 role × 1 persona × 1 behavior fragment ships, and the
+  default combination produces byte-identical output to v0.1.0
+  (regression test).
+- [x] Sidebar exposes Persona + Behavior selectboxes; running with
+  defaults reproduces v0.1.0 behaviour.
+- [x] `scripts/ci.ps1` green; **20 new unit tests** added (full suite
+  85 passed in 1.57 s; mypy strict on 7 source files).
+
+**Library shipped:** `roles/{offender,defender}.json`,
+`personas/{neutral,professor}.json`,
+`behaviors/{standard,steelman}.json`. Phase 14 will expand the catalogue.
+
+> **Status: Phase 9 complete.** Move to Phase 10.
+
+---
+
+### Phase 10 — Per-Agent Memory File 📋
+
+**Goal:** Each agent owns a structured, persistent memory document read
+before every turn and writable by a dedicated reflection prompt. This is
+the **mechanism layer**; what gets written into it comes in Phases 11-12.
+
+**Steps**
+
+1. **10.1 — Memory schema.** New module `auto_debate/memory.py`:
+   ```python
+   @dataclass
+   class AgentMemory:
+       agent_id: str            # "offender" | "defender"
+       knowledge: list[str]     # web-research snippets (Phase 11 fills)
+       observations: list[str]  # notes about opponent (Phase 12 fills)
+       strategy: list[str]      # agent's own evolving plan
+       turn_index: int          # last turn this memory reflects
+   ```
+   Persisted as Markdown with explicit `## Knowledge`, `## Observations`,
+   `## Strategy` sections under `runs/<run_id>/memory/{agent_id}.md`.
+2. **10.2 — Read/write contract.** `MemoryStore` class:
+   `load(run_id, agent_id) -> AgentMemory`,
+   `save(memory) -> Path`, `to_prompt_block(memory, *, max_chars) -> str`
+   (renders the memory as a `<MEMORY>...</MEMORY>` block for injection
+   into the composer). Token budget enforced by truncating oldest items
+   first.
+3. **10.3 — Composer integration.** `PromptComposer.compose(...)` accepts
+   an optional `memory: AgentMemory`. If present, its rendered block is
+   inserted after the behavior fragment.
+4. **10.4 — Engine integration.** `DebateEngine` gains
+   `_memories: dict[str, AgentMemory]`, initialized empty per run.
+   Feature-flagged by `Settings.memory_enabled` — default `False` to
+   preserve v0.1.0.
+5. **10.5 — UI surface.** Sidebar toggle "Enable agent memory". When on,
+   the main page shows two collapsible `st.expander("Offender memory")` /
+   `st.expander("Defender memory")` panes that render the live memory
+   markdown after each turn. Read-only in v0.2; manual editing deferred.
+6. **10.6 — Tests.** `tests/test_memory.py` — schema round-trip,
+   truncation budget, prompt-block rendering, file persistence under
+   `tmp_path`.
+
+**Phase 10 Exit Criteria**
+- [ ] Memory files are written under `runs/<run_id>/memory/`; format
+  parses round-trip.
+- [ ] When `memory_enabled=False` (default), engine output is unchanged
+  vs v0.1.0 (regression test).
+- [ ] When `memory_enabled=True` with empty memory, output is still
+  unchanged (empty `<MEMORY>` block has no effect).
+- [ ] UI panes render the live memory after each turn.
+
+---
+
+### Phase 11 — Pre-Debate Web Research 📋
+
+**Goal:** Before turn 1, each agent runs a small web-search routine and
+populates the **Knowledge** section of its memory file with cited
+snippets. Targets the **Q6 Factual grounding 2/5** finding from
+[report.md](report.md).
+
+**Steps**
+
+1. **11.1 — Search adapter abstraction.** `auto_debate/research.py` —
+   `SearchAdapter` Protocol with `search(query: str, *, max_results: int)
+   -> list[SearchResult]` where `SearchResult` carries `title`, `url`,
+   `snippet`, `fetched_at`. Ships with two implementations:
+   - `DuckDuckGoAdapter` (no API key required, via `duckduckgo-search`
+     pip package).
+   - `OfflineFixtureAdapter` (reads canned JSON; used in tests + offline
+     demos).
+2. **11.2 — Research planner prompt.** New behavior fragment
+   `RESEARCHER` plus a one-shot LLM call: "Given the topic and your role
+   stance, produce 3-5 web-search queries you would run to back up your
+   side." Output is a JSON list parsed with strict validation;
+   malformed → fall back to `[topic]`.
+3. **11.3 — Fetch + summarise loop.** For each query, call
+   `SearchAdapter.search(...)`, then run a second LLM call per result:
+   "Summarise this snippet in ≤ 40 words, neutrally, and tag whether it
+   supports / contradicts / is-irrelevant-to your role stance." Append
+   approved summaries (with URL) to `AgentMemory.knowledge`.
+4. **11.4 — Caching.** Results cached on disk under
+   `runs/<run_id>/cache/search/<sha1(query)>.json` with a TTL of 24 h, so
+   re-runs of the same topic don't re-hit the network. Cache is the
+   single source of truth for offline replay.
+5. **11.5 — Cost & timeout limits.** Hard caps per agent:
+   `max_queries=5`, `max_results_per_query=5`, total wall-clock budget
+   60 s. Settings: `web_research_enabled` (default `False`),
+   `web_search_adapter` (`"duckduckgo" | "offline"`).
+6. **11.6 — UI surface.** When `web_research_enabled=True`, Streamlit
+   shows a spinner "Researching for Offender / Defender…" before turn 1.
+   The two memory expanders display the knowledge section with clickable
+   source links.
+7. **11.7 — Tests.** `tests/test_research.py` — adapter contract tests
+   with `OfflineFixtureAdapter`, query-planner JSON parsing edge cases,
+   cache hit/miss, hard-limit enforcement. **No live network in CI.**
+
+**Phase 11 Exit Criteria**
+- [ ] Running with `web_research_enabled=True` populates each agent's
+  `## Knowledge` section with at least 3 entries that include URLs.
+- [ ] Running with `web_research_enabled=False` matches Phase 10
+  behaviour exactly (regression test).
+- [ ] All tests pass with the offline fixture; one manual smoke run with
+  the live DuckDuckGo adapter is documented.
+- [ ] Hard limits prevent any single research pass from exceeding 60 s.
+
+---
+
+### Phase 12 — Pre-Turn Memory Reflection 📋
+
+**Goal:** Before each turn, the speaking agent runs a dedicated
+**reflection prompt** that reads the opponent's latest answer and
+updates its own `## Observations` and `## Strategy` sections — *then* it
+generates the actual debate turn. Targets **Q4 looping 2/5** in
+[report.md](report.md).
+
+**Steps**
+
+1. **12.1 — Reflection prompt fragment.** New role-like fragment
+   `REFLECTOR` with a strict output schema:
+   ```
+   <UPDATE>
+   add_observations: ["..."]
+   add_strategy: ["..."]
+   drop_observations: [<index>, ...]
+   drop_strategy: [<index>, ...]
+   </UPDATE>
+   ```
+   The reflection LLM call sees: role, current memory, opponent's last
+   turn. It does not see the conversation history — its only job is to
+   diff the memory.
+2. **12.2 — Memory mutator.** `MemoryStore.apply_update(memory, update)`
+   — strict validator (drops out-of-range indices, caps additions at 5
+   per turn, dedupes against existing entries). Returns a new
+   `AgentMemory`; never mutates in place.
+3. **12.3 — Engine wiring.** `DebateEngine.run_one_turn(speaker)` becomes
+   a two-stage pipeline:
+   - **Stage A (silent):** call reflection prompt → apply update → save
+     memory. Skipped on turn 1 (no opponent text yet).
+   - **Stage B (streamed):** call speaking prompt with the *updated*
+     memory injected → stream tokens to UI.
+   Stage A runs with `stream=False` and a low `num_predict` cap (e.g.
+   200 tokens) — it's a small, cheap call.
+4. **12.4 — UI surface.** Each chat bubble shows a tiny "🧠 reflected"
+   chip with hover-to-reveal diff (`+2 observations, +1 strategy,
+   -1 dropped`). Memory expanders update live between turns.
+5. **12.5 — Closing-round prompt.** Bonus addressing **Q8 Structure
+   3/5** from the report: when `closing_round_enabled=True` and
+   `turn_index == max_turns - 1`, swap the speaking behavior fragment
+   for `CLOSING` ("Summarise your strongest argument; do not introduce
+   new attacks; explicitly acknowledge the strongest opposing point").
+6. **12.6 — Tests.** `tests/test_reflection.py` — schema parsing,
+   mutator boundary conditions, two-stage pipeline ordering (mocked
+   LLM), turn-1 skip rule, closing-round swap.
+
+**Phase 12 Exit Criteria**
+- [ ] After 5 turns, each agent's `## Observations` section has grown
+  monotonically and references opponent-specific phrases (verified in a
+  live smoke run).
+- [ ] Reflection failures (malformed JSON, LLM error) degrade
+  gracefully: speaking turn proceeds with the previous memory and a
+  warning is logged.
+- [ ] Closing-round prompt produces visibly different last turns
+  (manual QA, captured in updated [report.md](report.md)).
+
+---
+
+### Phase 13 — Repetition & Quality Guards 📋
+
+**Goal:** Address the remaining report.md weakness directly:
+quantitatively detect when the debate is looping or drifting and surface
+it in the UI. **No model changes** — pure post-processing on the
+streamed turns.
+
+**Steps**
+
+1. **13.1 — Novelty scorer.** `auto_debate/quality.py` —
+   `ngram_overlap(turn, prev_turns, *, n=3) -> float` returning the
+   Jaccard similarity of 3-grams between the new turn and the union of
+   the previous 2. Threshold-based label: `LOW / MEDIUM / HIGH novelty`.
+2. **13.2 — Topic-adherence scorer.** TF-IDF cosine between each turn
+   and the topic string + agent role. No external model — pure
+   `sklearn`-free implementation using `collections.Counter`.
+3. **13.3 — Per-turn QA chips.** Streamlit renders a faint chip below
+   each chat bubble: `novelty 0.78 · adherence 0.62`. Colour-coded
+   green/amber/red against thresholds from `Settings`.
+4. **13.4 — Loop hint.** When 3 consecutive turns score below the
+   novelty threshold, the UI shows a non-blocking `st.info`: "Agents may
+   be repeating themselves — consider stopping or enabling closing
+   round."
+5. **13.5 — Transcript export enrichment.** `engine.to_markdown()` gains
+   an optional `include_quality_metrics=True` flag that appends a
+   summary table at the end (per-turn novelty + adherence + overall
+   weighted score) so future report.md generations can be partially
+   automated.
+6. **13.6 — Tests.** `tests/test_quality.py` — scorer correctness on
+   synthetic transcripts (identical text → 1.0 overlap; disjoint text →
+   ~0 overlap), threshold gating, markdown enrichment.
+
+**Phase 13 Exit Criteria**
+- [ ] Re-running the v0.1.0 sample debate through the new metrics
+  reproduces the report.md verdict (looping flagged at ~Turn 13+).
+- [ ] Per-turn chips render correctly in the live UI.
+- [ ] Transcript export with metrics is valid Markdown that opens in
+  GitHub preview.
+
+---
+
+### Phase 14 — Persona & Behavior Library 📋
+
+**Goal:** Ship a real catalogue of swappable personalities and
+behaviors, validating that the Phase 9 composer scales beyond the
+default pair.
+
+**Steps**
+
+1. **14.1 — Author 5+ personas.** YAML files under
+   `prompts/library/personas/`: `socratic.yaml`, `tabloid.yaml`,
+   `professor.yaml`, `politician.yaml`, `comedian.yaml`. Each ≤ 80
+   words.
+2. **14.2 — Author 4+ behaviors.** `prompts/library/behaviors/`:
+   `cite_evidence.yaml` (must reference at least one knowledge entry),
+   `steelman.yaml` (must restate opponent before rebutting),
+   `concise.yaml` (≤ 50 words/turn), `analytical.yaml` (numbered
+   bullets).
+3. **14.3 — Persona × persona compatibility check.** Optional
+   one-shot validator that warns if a persona/behavior combo is
+   contradictory (e.g. `concise` + `analytical_with_5_bullets`). Pure
+   heuristic, no LLM call.
+4. **14.4 — UI: persona presets.** Sidebar "Preset" dropdown with named
+   bundles (e.g. "Academic debate" = professor + steelman vs professor
+   + cite_evidence; "Tabloid showdown" = tabloid + concise vs
+   politician + concise). Custom = manual selection.
+5. **14.5 — Persona reproducibility tests.** For each persona, lock a
+   seeded run (`temperature=0`, fixed model, fixed topic) and snapshot
+   the first turn's first 200 chars; CI compares snapshots to detect
+   accidental persona drift after future prompt edits.
+6. **14.6 — Docs.** README "Personas" section with one-line description
+   per persona and a screenshot of the sidebar.
+
+**Phase 14 Exit Criteria**
+- [ ] 5+ personas and 4+ behaviors loadable from the registry.
+- [ ] At least 3 named presets selectable in the UI.
+- [ ] Snapshot tests for every persona pass on `gemma3:4b`.
+- [ ] README documents how to add a new persona without touching code.
+
+---
+
+### Phase 15 — Optional Judge / Evaluator Agent 📋
+
+**Goal:** Automate the report.md rubric: a third agent reads the full
+transcript and scores it against the 9 dimensions from
+[report.md](report.md). Optional, off by default.
+
+**Steps**
+
+1. **15.1 — Judge role fragment.** New `JUDGE` role with rubric and
+   strict JSON output schema (one score per Q1-Q9 plus a verdict
+   string).
+2. **15.2 — Post-debate hook.** When `judge_enabled=True`, after the
+   final turn the engine runs the judge with the full transcript +
+   memory files as context, parses the JSON, and renders the scorecard
+   as a Streamlit table directly below the debate.
+3. **15.3 — Persisted report.** Save the judge output to
+   `runs/<run_id>/report.json` and a rendered `report.md` next to the
+   transcript — same format as the manual report.md, partially
+   automating future quality reviews.
+4. **15.4 — Sanity check.** Run the judge against the v0.1.0 sample
+   transcript; the produced scores should land within ±1 of the manual
+   scores in [report.md](report.md). If not, iterate on the rubric
+   prompt.
+5. **15.5 — Tests.** `tests/test_judge.py` — schema validation,
+   scorecard rendering, persistence path, error handling when the
+   judge LLM returns malformed JSON.
+
+**Phase 15 Exit Criteria**
+- [ ] Toggling "Enable judge" runs a third LLM pass after the debate.
+- [ ] Generated `report.md` is structurally identical to the manual one
+  and renders correctly in GitHub preview.
+- [ ] All scores within ±1 of the human report on the v0.1.0 sample.
+- [ ] **v0.2.0 tag cut** once Phases 9-15 exit criteria are all green.
 
 ---
 
 ## Quick Phase Map
 
-| Phase | Theme                | Primary Output                          |
-| ----- | -------------------- | --------------------------------------- |
-| 0     | Environment & sanity | bootstrap scripts, working venv         |
-| 1     | Scaffolding          | every file empty but importable         |
-| 2     | Config               | `config.py` typed + tested            |
-| 3     | Prompts              | `prompts.py` typed + tested           |
-| 4     | LLM wrapper          | `llm.py` typed + mocked tests         |
-| 5     | Engine               | `engine.py` runs a debate via stdout  |
-| 6     | UI                   | `app.py` runs the debate in Streamlit |
-| 7     | Hardening            | logging, lint, QA matrix                |
-| 8     | Docs & release       | README, v0.1.0 tag                      |
+| Phase | Theme | Status |
+|---|---|---|
+| 0 | Environment & sanity | ✅ shipped |
+| 1 | Scaffolding | ✅ shipped |
+| 2 | Config | ✅ shipped |
+| 3 | Prompts | ✅ shipped |
+| 4 | LLM wrapper | ✅ shipped |
+| 5 | Engine | ✅ shipped |
+| 6 | UI | ✅ shipped |
+| 7 | Hardening | ✅ shipped |
+| 8 | Docs & release | ✅ shipped (v0.1.0) |
+| 9 | Composable prompt architecture | ✅ shipped |
+| 10 | Per-agent memory file | 📋 planned |
+| 11 | Pre-debate web research | 📋 planned |
+| 12 | Pre-turn memory reflection | 📋 planned |
+| 13 | Repetition & quality guards | 📋 planned |
+| 14 | Persona & behavior library | 📋 planned |
+| 15 | Optional judge agent (→ v0.2.0) | 📋 planned |
+| 16+ | Future | — |
+
+---
+
+## Cross-Phase Conventions
+
+- **Branch per phase:** `phase/N-name`, merged to `main` when exit criteria are green.
+- **Commit prefix:** `[PN]` (e.g. `[P9]`).
+- **No phase skipping.** A phase that fails its exit criteria blocks the next.
+- **Tests live next to behavior.** New logic ships with at least one test.

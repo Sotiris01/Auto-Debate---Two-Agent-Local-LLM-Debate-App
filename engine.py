@@ -19,9 +19,15 @@ from typing import Any, Protocol
 
 from config import Settings
 from prompts import (
+    DEFENDER_ROLE,
+    NEUTRAL_PERSONA,
+    OFFENDER_ROLE,
     OPENING_USER_MESSAGE,
+    STANDARD_BEHAVIOR,
+    BehaviorFragment,
+    PersonaFragment,
+    PromptComposer,
     Role,
-    build_system_prompt,
 )
 
 __all__ = [
@@ -82,6 +88,8 @@ class DebateEngine:
     settings: Settings
     llm_client: LLMClient
     topic: str
+    persona: PersonaFragment = NEUTRAL_PERSONA
+    behavior: BehaviorFragment = STANDARD_BEHAVIOR
 
     _offender_msgs: list[dict[str, Any]] = field(init=False)
     _defender_msgs: list[dict[str, Any]] = field(init=False)
@@ -89,15 +97,18 @@ class DebateEngine:
     _offender_has_spoken: bool = field(init=False, default=False)
 
     def __post_init__(self) -> None:
-        offender_system = build_system_prompt(
-            "offender",
-            self.topic,
-            self.settings.word_limit,
+        composer = PromptComposer(word_limit=self.settings.word_limit)
+        offender_system = composer.compose(
+            role=OFFENDER_ROLE,
+            topic=self.topic,
+            persona=self.persona,
+            behavior=self.behavior,
         )
-        defender_system = build_system_prompt(
-            "defender",
-            self.topic,
-            self.settings.word_limit,
+        defender_system = composer.compose(
+            role=DEFENDER_ROLE,
+            topic=self.topic,
+            persona=self.persona,
+            behavior=self.behavior,
         )
         self._offender_msgs = [{"role": "system", "content": offender_system}]
         self._defender_msgs = [{"role": "system", "content": defender_system}]

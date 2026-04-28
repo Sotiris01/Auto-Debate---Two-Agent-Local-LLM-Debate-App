@@ -20,6 +20,15 @@ import streamlit as st
 from config import ConfigError, Settings, configure_logging, load_settings
 from engine import DebateEngine
 from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
+from prompts import (
+    DEFAULT_BEHAVIOR_NAME,
+    DEFAULT_PERSONA_NAME,
+    NEUTRAL_PERSONA,
+    STANDARD_BEHAVIOR,
+    list_fragments,
+    load_behavior,
+    load_persona,
+)
 
 # --- constants --------------------------------------------------------------
 
@@ -113,6 +122,37 @@ with st.sidebar:
         value=float(base_settings.temperature),
         step=0.05,
         disabled=st.session_state.running,
+    )
+
+    st.divider()
+    st.caption("Prompt composition (Phase 9)")
+
+    _persona_choices = list_fragments("personas") or [DEFAULT_PERSONA_NAME]
+    _persona_default_idx = (
+        _persona_choices.index(DEFAULT_PERSONA_NAME)
+        if DEFAULT_PERSONA_NAME in _persona_choices
+        else 0
+    )
+    persona_name = st.selectbox(
+        "Persona",
+        _persona_choices,
+        index=_persona_default_idx,
+        disabled=st.session_state.running,
+        help="Voice / tone overlay applied on top of the role.",
+    )
+
+    _behavior_choices = list_fragments("behaviors") or [DEFAULT_BEHAVIOR_NAME]
+    _behavior_default_idx = (
+        _behavior_choices.index(DEFAULT_BEHAVIOR_NAME)
+        if DEFAULT_BEHAVIOR_NAME in _behavior_choices
+        else 0
+    )
+    behavior_name = st.selectbox(
+        "Behavior",
+        _behavior_choices,
+        index=_behavior_default_idx,
+        disabled=st.session_state.running,
+        help="Procedural directives layered after the persona.",
     )
 
     st.divider()
@@ -266,7 +306,24 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
     try:
         client = OllamaClient(settings)
         client.ensure_model_available()
-        engine = DebateEngine(settings, client, topic_text)
+        # Phase 9: compose the prompt from sidebar-selected persona + behavior.
+        try:
+            persona = load_persona(persona_name)
+        except Exception:
+            # Fall back to neutral on any registry error.
+            persona = NEUTRAL_PERSONA
+        try:
+            behavior = load_behavior(behavior_name)
+        except Exception:
+            # Fall back to standard on any registry error.
+            behavior = STANDARD_BEHAVIOR
+        engine = DebateEngine(
+            settings,
+            client,
+            topic_text,
+            persona=persona,
+            behavior=behavior,
+        )
     except OllamaUnavailableError as exc:
         st.session_state.last_error = (
             f"Ollama is not reachable.\n\n```\n{exc}\n```\n"
