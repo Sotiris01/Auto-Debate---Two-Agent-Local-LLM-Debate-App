@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from config import Settings
 from memory import AgentId, AgentMemory, MemoryStore, MemoryStoreError
@@ -33,6 +33,9 @@ from prompts import (
     RoleFragment,
 )
 from reflection import MemoryUpdate, Reflector, apply_update
+
+if TYPE_CHECKING:  # pragma: no cover — type-only import
+    from quality import TurnMetrics
 
 __all__ = [
     "DebateEngine",
@@ -353,8 +356,12 @@ class DebateEngine:
     def defender_messages(self) -> list[dict[str, Any]]:
         return list(self._defender_msgs)
 
-    def to_markdown(self) -> str:
-        """Render the transcript as Markdown (consumed by the Phase 8 export)."""
+    def to_markdown(self, *, include_quality_metrics: bool = False) -> str:
+        """Render the transcript as Markdown (consumed by the Phase 8 export).
+
+        When ``include_quality_metrics`` is ``True`` (Phase 13), a per-turn
+        novelty + adherence table is appended.
+        """
         lines = [f"# Debate: {self.topic}", ""]
         for turn in self._turns:
             label = "Offender" if turn.speaker == "offender" else "Defender"
@@ -362,7 +369,37 @@ class DebateEngine:
             lines.append("")
             lines.append(turn.content.strip())
             lines.append("")
-        return "\n".join(lines).rstrip() + "\n"
+        body = "\n".join(lines).rstrip() + "\n"
+        if include_quality_metrics and self._turns:
+            from quality import render_metrics_table
+
+            metrics = self.compute_quality_metrics()
+            table = render_metrics_table(metrics)
+            if table:
+                body = body + "\n" + table
+        return body
+
+    def compute_quality_metrics(self) -> list[TurnMetrics]:
+        """Return :class:`quality.TurnMetrics` for every committed turn.
+
+        Defined here (rather than on every UI surface) so the same numbers
+        appear in the live chips, the loop-hint banner, and the markdown
+        export. Imports lazily so ``engine`` doesn't pay for ``quality``
+        at module-load time when callers don't need metrics.
+        """
+        from quality import compute_turn_metrics
+
+        contents = [t.content for t in self._turns]
+        return [
+            compute_turn_metrics(
+                turn_index=t.index,
+                turn_text=t.content,
+                prev_turn_texts=contents[:i],
+                topic=self.topic,
+                role_hint=t.speaker,
+            )
+            for i, t in enumerate(self._turns)
+        ]
 
     # --- turn execution ----------------------------------------------------
 

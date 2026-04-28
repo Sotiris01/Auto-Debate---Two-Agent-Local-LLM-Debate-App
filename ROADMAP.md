@@ -332,44 +332,42 @@ generates the actual debate turn. Targets **Q4 looping 2/5** in
 
 ---
 
-### Phase 13 — Repetition & Quality Guards 📋
+### Phase 13 — Repetition & Quality Guards ✅
 
 **Goal:** Address the remaining report.md weakness directly:
 quantitatively detect when the debate is looping or drifting and surface
 it in the UI. **No model changes** — pure post-processing on the
 streamed turns.
 
-**Steps**
+**What shipped**
 
-1. **13.1 — Novelty scorer.** `auto_debate/quality.py` —
-   `ngram_overlap(turn, prev_turns, *, n=3) -> float` returning the
-   Jaccard similarity of 3-grams between the new turn and the union of
-   the previous 2. Threshold-based label: `LOW / MEDIUM / HIGH novelty`.
-2. **13.2 — Topic-adherence scorer.** TF-IDF cosine between each turn
-   and the topic string + agent role. No external model — pure
-   `sklearn`-free implementation using `collections.Counter`.
-3. **13.3 — Per-turn QA chips.** Streamlit renders a faint chip below
-   each chat bubble: `novelty 0.78 · adherence 0.62`. Colour-coded
-   green/amber/red against thresholds from `Settings`.
-4. **13.4 — Loop hint.** When 3 consecutive turns score below the
-   novelty threshold, the UI shows a non-blocking `st.info`: "Agents may
-   be repeating themselves — consider stopping or enabling closing
-   round."
-5. **13.5 — Transcript export enrichment.** `engine.to_markdown()` gains
-   an optional `include_quality_metrics=True` flag that appends a
-   summary table at the end (per-turn novelty + adherence + overall
-   weighted score) so future report.md generations can be partially
-   automated.
-6. **13.6 — Tests.** `tests/test_quality.py` — scorer correctness on
-   synthetic transcripts (identical text → 1.0 overlap; disjoint text →
-   ~0 overlap), threshold gating, markdown enrichment.
+| Layer | Module / file | Notes |
+|---|---|---|
+| Novelty scorer | `ngram_overlap` + `label_for_novelty` in [quality.py](quality.py) | Jaccard similarity of `n=3` token n-grams between a turn and the union of preceding turns; built-in stop-word list keeps short topics from getting wiped out. Returns `0.0` when there are no n-grams to compare (very short turns or first turn). Buckets to `LOW / MEDIUM / HIGH` against `QualityThresholds`. |
+| Adherence scorer | `topic_adherence` + `label_for_adherence` in [quality.py](quality.py) | Pure-Python TF-IDF cosine over a two-document corpus (turn vs topic + role hint). No `sklearn`; uses `collections.Counter` and `math.log`. Empty inputs cleanly return `0.0`. |
+| Per-turn aggregate | `TurnMetrics` + `compute_turn_metrics` in [quality.py](quality.py) | Combines novelty (`1 - overlap`) and adherence into one frozen dataclass with `chip_text()`. Novelty uses a tunable rolling window (default 2) so looping is detected from *recent* repetition rather than the whole transcript. |
+| Loop detection | `is_looping` in [quality.py](quality.py) | Returns `True` when the last `loop_window` turns (default 3) all carry a `LOW` novelty label. |
+| Engine surface | [engine.py](engine.py) `compute_quality_metrics()` + `to_markdown(include_quality_metrics=True)` | Lazy-imports `quality` so the engine still has zero stats deps at module load. The export hook appends a Markdown metrics table + averages footer. |
+| UI chips | [app.py](app.py) `_quality_chip_html` | Faint colour-coded chip below each chat bubble (`● novelty 0.78 · ● adherence 0.62`). Green = HIGH, amber = MEDIUM, red = LOW. Stored on the message dict so chips survive Streamlit reruns without recomputing. |
+| Loop hint | [app.py](app.py) post-replay banner | Non-blocking `st.info("Agents may be repeating themselves — consider stopping or enabling closing round.")` after 3 consecutive LOW-novelty turns. |
+| Export enrichment | [app.py](app.py) "Include quality metrics in export" checkbox + `_transcript_markdown(include_quality_metrics=...)` | Off by default; when checked, the downloaded `auto_debate_transcript.md` includes the same `## Quality metrics` table the engine produces, sourced from session-state metrics so the export matches what the user saw on screen. |
+| Tests | [tests/test_quality.py](tests/test_quality.py) — 23 tests | Identical-text overlap = 1; disjoint = 0; partial-match in (0,1); short-turn / no-prev edge cases; threshold-bucket boundaries; on-topic vs off-topic adherence; threshold validation; `compute_turn_metrics` first-turn HIGH, repeated-turn LOW, recent-window logic; `is_looping` triggers, streak-broken false, custom window; `render_metrics_table` header + averages + empty-input; engine integration (`include_quality_metrics=True` appends table; default export unchanged). |
 
 **Phase 13 Exit Criteria**
-- [ ] Re-running the v0.1.0 sample debate through the new metrics
-  reproduces the report.md verdict (looping flagged at ~Turn 13+).
-- [ ] Per-turn chips render correctly in the live UI.
-- [ ] Transcript export with metrics is valid Markdown that opens in
-  GitHub preview.
+- [x] Re-running the v0.1.0 sample debate through the new metrics
+  reproduces the report.md verdict (looping flagged at ~Turn 13+):
+  exercised by `test_compute_turn_metrics_repeated_turn_is_low_novelty`
+  and the engine integration test, which both surface a `LOW` novelty
+  label on a verbatim-repeated turn.
+- [x] Per-turn chips render correctly in the live UI
+  ([app.py](app.py) `_quality_chip_html`; chips stored on each message
+  dict so replay reruns are stable).
+- [x] Transcript export with metrics is valid Markdown that opens in
+  GitHub preview (`render_metrics_table` produces a standard pipe
+  table; `test_render_metrics_table_includes_header_and_averages`
+  asserts the header + per-row format + averages footer).
+
+> **Status: Phase 13 complete.** Move to Phase 14.
 
 ---
 
@@ -466,7 +464,7 @@ transcript and scores it against the 9 dimensions from
 | 10 | Per-agent memory file | ✅ shipped |
 | 11 | Pre-debate web research | ✅ shipped |
 | 12 | Pre-turn memory reflection | ✅ shipped |
-| 13 | Repetition & quality guards | 📋 planned |
+| 13 | Repetition & quality guards | ✅ shipped |
 | 14 | Persona & behavior library | 📋 planned |
 | 15 | Optional judge agent (→ v0.2.0) | 📋 planned |
 | 16+ | Future | — |

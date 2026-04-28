@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import streamlit as st
 
@@ -348,16 +348,43 @@ if reset_clicked:
 st.divider()
 
 
+_QUALITY_COLORS: dict[str, str] = {"HIGH": "#3fb950", "MEDIUM": "#d29922", "LOW": "#f85149"}
+
+
+def _quality_chip_html(metrics: dict[str, Any] | None) -> str:
+    """Render a faint per-turn quality chip below a chat bubble.
+
+    ``metrics`` is the small dict stored on each message
+    (``{novelty, adherence, novelty_label, adherence_label}``). Returns
+    an empty string when no metrics are available.
+    """
+    if not metrics:
+        return ""
+    nov_color = _QUALITY_COLORS.get(metrics.get("novelty_label", ""), "#8b949e")
+    adh_color = _QUALITY_COLORS.get(metrics.get("adherence_label", ""), "#8b949e")
+    return (
+        f"<div style='font-size:0.78em;opacity:0.78;margin-top:0.25em;'>"
+        f"<span style='color:{nov_color};'>● novelty {metrics['novelty']:.2f}</span>"
+        f" &nbsp;·&nbsp; "
+        f"<span style='color:{adh_color};'>● adherence {metrics['adherence']:.2f}</span>"
+        f"</div>"
+    )
+
+
 def _render_message(
     speaker: str,
     content: str,
     *,
     reflection: str | None = None,
+    metrics: dict[str, Any] | None = None,
 ) -> None:
     """Render a single chat bubble with a visible speaker label."""
     with st.chat_message(_LABELS[speaker], avatar=_AVATARS[speaker]):
         chip = f" &nbsp;·&nbsp; 🧠 _reflected: {reflection}_" if reflection else ""
         st.markdown(f"**{_LABELS[speaker]}**{chip}\n\n{content}")
+        quality_html = _quality_chip_html(metrics)
+        if quality_html:
+            st.markdown(quality_html, unsafe_allow_html=True)
 
 
 def _refresh_memory_snapshot(engine: DebateEngine) -> None:
@@ -404,7 +431,22 @@ def _render_memory_section(memory: AgentMemory) -> str:
 
 
 for msg in st.session_state.messages:
-    _render_message(msg["speaker"], msg["content"], reflection=msg.get("reflection"))
+    _render_message(
+        msg["speaker"],
+        msg["content"],
+        reflection=msg.get("reflection"),
+        metrics=msg.get("metrics"),
+    )
+
+# Phase 13.4: non-blocking loop hint when several recent turns scored LOW novelty.
+_recent_metrics = [msg.get("metrics") for msg in st.session_state.messages if msg.get("metrics")]
+if len(_recent_metrics) >= 3 and all(
+    (m or {}).get("novelty_label") == "LOW" for m in _recent_metrics[-3:]
+):
+    st.info(
+        "Agents may be repeating themselves — consider stopping or enabling the closing round.",
+        icon="🔁",
+    )
 
 if st.session_state.last_error is not None:
     st.error(st.session_state.last_error)
@@ -434,7 +476,7 @@ if memory_enabled and st.session_state.memory_snapshot:
 # --- transcript export ------------------------------------------------------
 
 
-def _transcript_markdown() -> str:
+def _transcript_markdown(*, include_quality_metrics: bool = False) -> str:
     """Build a Markdown export from the committed session messages."""
     lines = [f"# Debate: {st.session_state.topic or '(no topic)'}", ""]
     for i, msg in enumerate(st.session_state.messages, start=1):
@@ -443,13 +485,44 @@ def _transcript_markdown() -> str:
         lines.append("")
         lines.append(str(msg["content"]).strip())
         lines.append("")
-    return "\n".join(lines).rstrip() + "\n"
+    body = "\n".join(lines).rstrip() + "\n"
+    if include_quality_metrics:
+        from quality import (
+            QualityLabel,
+            TurnMetrics,
+            render_metrics_table,
+        )
+
+        metrics_objs: list[TurnMetrics] = []
+        for i, msg in enumerate(st.session_state.messages, start=1):
+            m = msg.get("metrics")
+            if not m:
+                continue
+            metrics_objs.append(
+                TurnMetrics(
+                    index=i,
+                    novelty=float(m["novelty"]),
+                    adherence=float(m["adherence"]),
+                    novelty_label=cast(QualityLabel, m["novelty_label"]),
+                    adherence_label=cast(QualityLabel, m["adherence_label"]),
+                ),
+            )
+        table = render_metrics_table(metrics_objs)
+        if table:
+            body = body + "\n" + table
+    return body
 
 
 if st.session_state.messages and not st.session_state.running:
+    include_metrics = st.checkbox(
+        "Include quality metrics in export",
+        value=False,
+        key="export_with_metrics",
+        help="Append per-turn novelty + adherence table to the downloaded Markdown.",
+    )
     st.download_button(
         "⬇️ Download transcript (.md)",
-        data=_transcript_markdown(),
+        data=_transcript_markdown(include_quality_metrics=bool(include_metrics)),
         file_name="auto_debate_transcript.md",
         mime="text/markdown",
         use_container_width=False,
@@ -557,11 +630,25 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                 reflection_label = (
                     diff.summary() if (diff is not None and not diff.is_empty) else None
                 )
+                # Phase 13: capture novelty + adherence for the just-appended turn.
+                turn_metrics = engine.compute_quality_metrics()
+                latest = turn_metrics[-1] if turn_metrics else None
+                metrics_payload: dict[str, Any] | None = (
+                    {
+                        "novelty": latest.novelty,
+                        "adherence": latest.adherence,
+                        "novelty_label": latest.novelty_label,
+                        "adherence_label": latest.adherence_label,
+                    }
+                    if latest is not None
+                    else None
+                )
                 st.session_state.messages.append(
                     {
                         "speaker": speaker,
                         "content": final_text,
                         "reflection": reflection_label,
+                        "metrics": metrics_payload,
                     },
                 )
             _refresh_memory_snapshot(engine)
