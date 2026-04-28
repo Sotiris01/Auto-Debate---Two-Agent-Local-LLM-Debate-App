@@ -43,6 +43,7 @@ _DEFAULT_MEMORY_ENABLED = False
 _DEFAULT_WEB_RESEARCH_ENABLED = False
 _DEFAULT_WEB_SEARCH_ADAPTER = "offline"
 _VALID_WEB_SEARCH_ADAPTERS = ("offline", "duckduckgo")
+_DEFAULT_CLOSING_ROUND_ENABLED = False
 
 
 class ConfigError(ValueError):
@@ -67,6 +68,7 @@ class Settings:
     memory_enabled: bool = _DEFAULT_MEMORY_ENABLED
     web_research_enabled: bool = _DEFAULT_WEB_RESEARCH_ENABLED
     web_search_adapter: str = _DEFAULT_WEB_SEARCH_ADAPTER
+    closing_round_enabled: bool = _DEFAULT_CLOSING_ROUND_ENABLED
 
 
 # --- helpers ----------------------------------------------------------------
@@ -151,6 +153,11 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         "WEB_SEARCH_ADAPTER",
         _DEFAULT_WEB_SEARCH_ADAPTER,
     ).lower()
+    closing_round_enabled = _get_bool(
+        "CLOSING_ROUND_ENABLED",
+        _DEFAULT_CLOSING_ROUND_ENABLED,
+        problems,
+    )
 
     if not ollama_host.startswith(("http://", "https://")):
         problems.append(
@@ -185,6 +192,7 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         memory_enabled=memory_enabled,
         web_research_enabled=web_research_enabled,
         web_search_adapter=web_search_adapter,
+        closing_round_enabled=closing_round_enabled,
     )
 
 

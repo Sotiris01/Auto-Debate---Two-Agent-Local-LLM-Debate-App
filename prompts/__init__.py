@@ -37,6 +37,7 @@ from .composer import (
     sanitize_topic,
 )
 from .fragments import (
+    CLOSING_BEHAVIOR,
     DEFAULT_BEHAVIOR_NAME,
     DEFAULT_PERSONA_NAME,
     DEFENDER_ROLE,
@@ -60,6 +61,7 @@ from .registry import (
 )
 
 __all__ = [
+    "CLOSING_BEHAVIOR",
     "DEFAULT_BEHAVIOR_NAME",
     "DEFAULT_PERSONA_NAME",
     "DEFENDER_ROLE",

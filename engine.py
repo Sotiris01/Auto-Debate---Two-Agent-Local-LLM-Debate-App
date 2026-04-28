@@ -20,6 +20,7 @@ from typing import Any, Protocol
 from config import Settings
 from memory import AgentId, AgentMemory, MemoryStore, MemoryStoreError
 from prompts import (
+    CLOSING_BEHAVIOR,
     DEFENDER_ROLE,
     NEUTRAL_PERSONA,
     OFFENDER_ROLE,
@@ -31,11 +32,13 @@ from prompts import (
     Role,
     RoleFragment,
 )
+from reflection import MemoryUpdate, Reflector, apply_update
 
 __all__ = [
     "DebateEngine",
     "DebateTurn",
     "LLMClient",
+    "ReflectionDiff",
 ]
 
 _log = logging.getLogger(__name__)
@@ -68,6 +71,46 @@ class DebateTurn:
     index: int  # 1-based, monotonic across the whole debate
 
 
+@dataclass(frozen=True)
+class ReflectionDiff:
+    """Summary of the most recent reflection pass for one agent (UI surface).
+
+    ``turn_index`` is the global 1-based index of the speaking turn that
+    this reflection ran *before*. ``observations_added`` etc. are the
+    counts after validation/dedup, so the UI never claims credit for
+    entries that were silently dropped by :func:`reflection.apply_update`.
+    """
+
+    speaker: Role
+    turn_index: int
+    observations_added: int
+    strategy_added: int
+    observations_dropped: int
+    strategy_dropped: int
+
+    @property
+    def is_empty(self) -> bool:
+        return not (
+            self.observations_added
+            or self.strategy_added
+            or self.observations_dropped
+            or self.strategy_dropped
+        )
+
+    def summary(self) -> str:
+        """Short human-readable diff (e.g. ``+2 obs · +1 strat · -1 obs``)."""
+        parts: list[str] = []
+        if self.observations_added:
+            parts.append(f"+{self.observations_added} obs")
+        if self.strategy_added:
+            parts.append(f"+{self.strategy_added} strat")
+        if self.observations_dropped:
+            parts.append(f"-{self.observations_dropped} obs")
+        if self.strategy_dropped:
+            parts.append(f"-{self.strategy_dropped} strat")
+        return " · ".join(parts) if parts else "no changes"
+
+
 # --- engine -----------------------------------------------------------------
 
 
@@ -94,6 +137,8 @@ class DebateEngine:
     behavior: BehaviorFragment = STANDARD_BEHAVIOR
     memory_store: MemoryStore | None = None
     run_id: str | None = None
+    reflector: Reflector | None = None
+    closing_behavior: BehaviorFragment = CLOSING_BEHAVIOR
 
     _offender_msgs: list[dict[str, Any]] = field(init=False)
     _defender_msgs: list[dict[str, Any]] = field(init=False)
@@ -101,6 +146,10 @@ class DebateEngine:
     _offender_has_spoken: bool = field(init=False, default=False)
     _composer: PromptComposer = field(init=False)
     _memories: dict[AgentId, AgentMemory] = field(init=False, default_factory=dict)
+    _last_reflection: dict[AgentId, ReflectionDiff] = field(
+        init=False,
+        default_factory=dict,
+    )
 
     def __post_init__(self) -> None:
         self._composer = PromptComposer(word_limit=self.settings.word_limit)
@@ -136,18 +185,134 @@ class DebateEngine:
         block = self.memory_store.to_prompt_block(memory)
         return block or None
 
-    def _build_system_prompt(self, role: RoleFragment, agent_id: AgentId) -> str:
+    def _build_system_prompt(
+        self,
+        role: RoleFragment,
+        agent_id: AgentId,
+        *,
+        behavior: BehaviorFragment | None = None,
+    ) -> str:
         return self._composer.compose(
             role=role,
             topic=self.topic,
             persona=self.persona,
-            behavior=self.behavior,
+            behavior=behavior if behavior is not None else self.behavior,
             memory=self._memory_block_for(agent_id),
         )
 
     def memory_for(self, agent_id: AgentId) -> AgentMemory | None:
         """Return the live memory for ``agent_id`` (UI surface)."""
         return self._memories.get(agent_id)
+
+    def last_reflection_for(self, agent_id: AgentId) -> ReflectionDiff | None:
+        """Return the most recent reflection diff for ``agent_id``, if any."""
+        return self._last_reflection.get(agent_id)
+
+    # --- closing-round + reflection ---------------------------------------
+
+    def _agent_speech_count(self, speaker: Role) -> int:
+        return sum(1 for t in self._turns if t.speaker == speaker)
+
+    def _behavior_for_turn(self, speaker: Role) -> BehaviorFragment:
+        """Pick the behaviour fragment for the upcoming turn by ``speaker``.
+
+        Returns :attr:`closing_behavior` when the closing-round flag is on
+        and the upcoming turn is the agent's final scheduled turn.
+        """
+        if (
+            self.settings.closing_round_enabled
+            and self._agent_speech_count(speaker) == self.settings.max_turns - 1
+        ):
+            return self.closing_behavior
+        return self.behavior
+
+    def _opponent_last_text(self, speaker: Role) -> str | None:
+        opponent = _opposite(speaker)
+        for turn in reversed(self._turns):
+            if turn.speaker == opponent:
+                return turn.content
+        return None
+
+    def _refresh_system_prompt(self, speaker: Role, behavior: BehaviorFragment) -> None:
+        role_fragment = OFFENDER_ROLE if speaker == "offender" else DEFENDER_ROLE
+        history = self._history_for(speaker)
+        new_system = self._build_system_prompt(
+            role_fragment,
+            speaker,
+            behavior=behavior,
+        )
+        if history and history[0].get("role") == "system":
+            history[0] = {"role": "system", "content": new_system}
+        else:
+            history.insert(0, {"role": "system", "content": new_system})
+
+    def _run_reflection(self, speaker: Role) -> None:
+        """Stage A: silent reflection that mutates the speaker's memory.
+
+        Skipped when:
+            * the reflector is not configured, OR
+            * memory is not active (flag/store/run_id), OR
+            * the opponent has not yet spoken (turn 1 of the debate).
+
+        All failures are non-fatal: the speaking turn proceeds with the
+        previous memory and a warning is logged.
+        """
+        if self.reflector is None or not self._memory_active:
+            return
+        opponent_text = self._opponent_last_text(speaker)
+        if not opponent_text:
+            return
+        assert self.memory_store is not None and self.run_id is not None
+        current = self._memories.get(speaker)
+        if current is None:
+            return
+        upcoming_index = len(self._turns) + 1
+        update: MemoryUpdate | None
+        try:
+            update = self.reflector.reflect(
+                agent_id=speaker,
+                memory=current,
+                opponent_text=opponent_text,
+            )
+        except Exception:
+            _log.exception("reflection raised for agent=%s; leaving memory unchanged", speaker)
+            return
+        if update is None or update.is_empty:
+            self._last_reflection[speaker] = ReflectionDiff(
+                speaker=speaker,
+                turn_index=upcoming_index,
+                observations_added=0,
+                strategy_added=0,
+                observations_dropped=0,
+                strategy_dropped=0,
+            )
+            return
+        updated = apply_update(current, update)
+        # Re-derive the actual counts so the UI never claims credit for
+        # drops/additions that validation silently rejected.
+        dropped_obs = sum(
+            1 for i in set(update.drop_observations) if 0 <= i < len(current.observations)
+        )
+        dropped_strat = sum(1 for i in set(update.drop_strategy) if 0 <= i < len(current.strategy))
+        added_obs = len(updated.observations) - (len(current.observations) - dropped_obs)
+        added_strat = len(updated.strategy) - (len(current.strategy) - dropped_strat)
+        self._memories[speaker] = updated
+        try:
+            self.memory_store.save(self.run_id, updated)
+        except MemoryStoreError:
+            _log.exception(
+                "failed to persist reflected memory for agent=%s turn=%d",
+                speaker,
+                upcoming_index,
+            )
+        self._last_reflection[speaker] = ReflectionDiff(
+            speaker=speaker,
+            turn_index=upcoming_index,
+            observations_added=added_obs,
+            strategy_added=added_strat,
+            observations_dropped=dropped_obs,
+            strategy_dropped=dropped_strat,
+        )
 
     def _persist_memory(self, speaker: Role, turn_index: int) -> None:
         """Persist both agents' memories after a turn is committed.
@@ -250,6 +415,16 @@ class DebateEngine:
         """
         if speaker not in ("offender", "defender"):
             raise ValueError(f"speaker must be 'offender' or 'defender', got {speaker!r}")
+
+        # Stage A (silent): reflection updates the speaker's memory before
+        # we build the request. Skipped on turn 1 (no opponent text yet)
+        # and whenever the reflector is not configured.
+        self._run_reflection(speaker)
+
+        # Refresh the system prompt so any memory mutation from Stage A
+        # and the closing-round behavior swap take effect for Stage B.
+        behavior = self._behavior_for_turn(speaker)
+        self._refresh_system_prompt(speaker, behavior)
 
         request = self._build_request_messages(speaker)
         from llm import chat_options  # local import to keep engine import-light

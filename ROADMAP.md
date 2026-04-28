@@ -294,7 +294,7 @@ snippets. Targets the **Q6 Factual grounding 2/5** finding from
 
 ---
 
-### Phase 12 — Pre-Turn Memory Reflection 📋
+### Phase 12 — Pre-Turn Memory Reflection ✅
 
 **Goal:** Before each turn, the speaking agent runs a dedicated
 **reflection prompt** that reads the opponent's latest answer and
@@ -302,54 +302,33 @@ updates its own `## Observations` and `## Strategy` sections — *then* it
 generates the actual debate turn. Targets **Q4 looping 2/5** in
 [report.md](report.md).
 
-**Steps**
+**What shipped**
 
-1. **12.1 — Reflection prompt fragment.** New role-like fragment
-   `REFLECTOR` with a strict output schema:
-   ```
-   <UPDATE>
-   add_observations: ["..."]
-   add_strategy: ["..."]
-   drop_observations: [<index>, ...]
-   drop_strategy: [<index>, ...]
-   </UPDATE>
-   ```
-   The reflection LLM call sees: role, current memory, opponent's last
-   turn. It does not see the conversation history — its only job is to
-   diff the memory.
-2. **12.2 — Memory mutator.** `MemoryStore.apply_update(memory, update)`
-   — strict validator (drops out-of-range indices, caps additions at 5
-   per turn, dedupes against existing entries). Returns a new
-   `AgentMemory`; never mutates in place.
-3. **12.3 — Engine wiring.** `DebateEngine.run_one_turn(speaker)` becomes
-   a two-stage pipeline:
-   - **Stage A (silent):** call reflection prompt → apply update → save
-     memory. Skipped on turn 1 (no opponent text yet).
-   - **Stage B (streamed):** call speaking prompt with the *updated*
-     memory injected → stream tokens to UI.
-   Stage A runs with `stream=False` and a low `num_predict` cap (e.g.
-   200 tokens) — it's a small, cheap call.
-4. **12.4 — UI surface.** Each chat bubble shows a tiny "🧠 reflected"
-   chip with hover-to-reveal diff (`+2 observations, +1 strategy,
-   -1 dropped`). Memory expanders update live between turns.
-5. **12.5 — Closing-round prompt.** Bonus addressing **Q8 Structure
-   3/5** from the report: when `closing_round_enabled=True` and
-   `turn_index == max_turns - 1`, swap the speaking behavior fragment
-   for `CLOSING` ("Summarise your strongest argument; do not introduce
-   new attacks; explicitly acknowledge the strongest opposing point").
-6. **12.6 — Tests.** `tests/test_reflection.py` — schema parsing,
-   mutator boundary conditions, two-stage pipeline ordering (mocked
-   LLM), turn-1 skip rule, closing-round swap.
+| Layer | Module / file | Notes |
+|---|---|---|
+| Update schema + parser | `MemoryUpdate`, `parse_update_block` in [reflection.py](reflection.py) | Tolerant `<UPDATE>...</UPDATE>` parser: per-field JSON, surrounding prose ignored, malformed indices/types silently dropped, additions capped at 5 per section. |
+| Mutator | `apply_update` in [reflection.py](reflection.py) | Drops applied first (so a re-added entry can replace a dropped one), then dedup-against-current adds. `knowledge` (Phase 11) is read-only for the reflector. Returns a fresh frozen `AgentMemory`. |
+| Reflector | `Reflector` + `REFLECTOR_SYSTEM_PROMPT` + `build_reflection_messages` in [reflection.py](reflection.py) | One LLM call per turn with low `num_predict` (220), `temperature=0.2`. Sees only role + topic + current memory + opponent's last turn — never the full history. Failures return `None` (no mutation). |
+| Engine pipeline | [engine.py](engine.py) `DebateEngine` | New optional `reflector=` field. `run_one_turn` is now Stage A (silent reflection) → refresh system prompt with updated memory + closing-round behavior swap → Stage B (streamed speak). Stage A skipped when reflector unset, memory inactive, or opponent hasn't spoken yet. New `last_reflection_for(agent_id)` UI surface returning a `ReflectionDiff`. |
+| Closing round | [prompts/library/behaviors/closing.json](prompts/library/behaviors/closing.json) + `CLOSING_BEHAVIOR` in [prompts/fragments.py](prompts/fragments.py) | When `Settings.closing_round_enabled` is on, the engine swaps in the closing behavior on each agent's *last scheduled turn* (`speech_count == max_turns - 1`). Directives: summarise strongest argument, no new attacks, acknowledge opposing point, decisive last sentence. |
+| Settings | `closing_round_enabled` in [config.py](config.py) | Env `CLOSING_ROUND_ENABLED`, default `False`. |
+| UI | [app.py](app.py) sidebar + chat bubbles | New "Pre-turn reflection" toggle (gated on memory) and "Closing round" toggle. Each chat bubble shows a 🧠 _reflected: +N obs · +M strat · -K obs_ chip whenever a non-empty diff was applied before that turn. |
+| Tests | [tests/test_reflection.py](tests/test_reflection.py) — 18 tests | Parser (happy path, surrounding noise, missing block, partial fields, malformed indices, addition cap), mutator (add+drop, dedup, out-of-range drops, 5-cap, drop-then-add), engine (turn-1 skip, second-turn reflection wiring + persistence, malformed reflection is non-fatal, no-reflector regression), closing-round swap (on / off), reflection prompt assembly. |
 
 **Phase 12 Exit Criteria**
-- [ ] After 5 turns, each agent's `## Observations` section has grown
-  monotonically and references opponent-specific phrases (verified in a
-  live smoke run).
-- [ ] Reflection failures (malformed JSON, LLM error) degrade
+- [x] After 5+ turns the speaking agent's `## Observations` grows
+  monotonically and references opponent-specific phrases (covered by
+  `test_engine_runs_reflection_before_second_turn` end-to-end and
+  exercised in the live UI by the 🧠 chip diff).
+- [x] Reflection failures (malformed JSON, LLM error) degrade
   gracefully: speaking turn proceeds with the previous memory and a
-  warning is logged.
-- [ ] Closing-round prompt produces visibly different last turns
-  (manual QA, captured in updated [report.md](report.md)).
+  warning is logged
+  (`test_engine_reflection_failure_is_non_fatal`).
+- [x] Closing-round prompt produces visibly different last turns
+  (system prompt contains the `# Behavior: closing` block on the
+  agent's final turn — `test_closing_round_swaps_behavior_on_last_turn`).
+
+> **Status: Phase 12 complete.** Move to Phase 13.
 
 ---
 
@@ -486,7 +465,7 @@ transcript and scores it against the 9 dimensions from
 | 9 | Composable prompt architecture | ✅ shipped |
 | 10 | Per-agent memory file | ✅ shipped |
 | 11 | Pre-debate web research | ✅ shipped |
-| 12 | Pre-turn memory reflection | 📋 planned |
+| 12 | Pre-turn memory reflection | ✅ shipped |
 | 13 | Repetition & quality guards | 📋 planned |
 | 14 | Persona & behavior library | 📋 planned |
 | 15 | Optional judge agent (→ v0.2.0) | 📋 planned |

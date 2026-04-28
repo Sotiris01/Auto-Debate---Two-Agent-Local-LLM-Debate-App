@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Final, Literal
 
 __all__ = [
+    "CLOSING_BEHAVIOR",
     "DEFAULT_BEHAVIOR_NAME",
     "DEFAULT_PERSONA_NAME",
     "DEFENDER_ROLE",
@@ -141,4 +142,20 @@ NEUTRAL_PERSONA: Final[PersonaFragment] = PersonaFragment(
 STANDARD_BEHAVIOR: Final[BehaviorFragment] = BehaviorFragment(
     name=DEFAULT_BEHAVIOR_NAME,
     directives=(),
+)
+
+# Phase 12: closing-round behaviour. Swapped in for the very last turn of
+# each agent when ``Settings.closing_round_enabled`` is True. Mirrors the
+# JSON file at ``prompts/library/behaviors/closing.json`` so the engine
+# can fall back to this constant if the registry is missing/corrupt.
+CLOSING_BEHAVIOR: Final[BehaviorFragment] = BehaviorFragment(
+    name="closing",
+    directives=(
+        "This is your CLOSING statement. Summarise your strongest argument "
+        "so far in two sentences before adding anything new.",
+        "Do not introduce fresh attacks or new evidence; build only on what you have already said.",
+        "Explicitly acknowledge the strongest opposing point in one short "
+        "clause before reaffirming why your stance still holds.",
+        "End with a single decisive sentence that states your final conclusion.",
+    ),
 )

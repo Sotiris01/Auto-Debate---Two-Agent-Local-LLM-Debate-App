@@ -31,6 +31,7 @@ from prompts import (
     load_behavior,
     load_persona,
 )
+from reflection import Reflector
 from research import (
     DuckDuckGoAdapter,
     OfflineFixtureAdapter,
@@ -213,6 +214,29 @@ with st.sidebar:
         ),
     )
 
+    reflection_enabled = st.toggle(
+        "Pre-turn reflection",
+        value=bool(memory_enabled),
+        disabled=st.session_state.running or not memory_enabled,
+        help=(
+            "Before each speaking turn (skipped on turn 1), the agent runs "
+            "a silent LLM call that reads the opponent's last answer and "
+            "updates its `## Observations` and `## Strategy` sections. "
+            "Requires agent memory to be enabled."
+        ),
+    )
+
+    closing_round_enabled = st.toggle(
+        "Closing round",
+        value=bool(base_settings.closing_round_enabled),
+        disabled=st.session_state.running,
+        help=(
+            "On each agent's final scheduled turn, swap the speaking "
+            "behaviour for a closing-statement directive: summarise, "
+            "acknowledge the strongest opposing point, conclude."
+        ),
+    )
+
     st.divider()
 
     if st.button("Check Ollama", disabled=st.session_state.running, use_container_width=True):
@@ -247,6 +271,7 @@ def _runtime_settings() -> Settings:
         memory_enabled=bool(memory_enabled),
         web_research_enabled=bool(memory_enabled and web_research_enabled),
         web_search_adapter=str(web_search_adapter),
+        closing_round_enabled=bool(closing_round_enabled),
     )
 
 
@@ -323,10 +348,16 @@ if reset_clicked:
 st.divider()
 
 
-def _render_message(speaker: str, content: str) -> None:
+def _render_message(
+    speaker: str,
+    content: str,
+    *,
+    reflection: str | None = None,
+) -> None:
     """Render a single chat bubble with a visible speaker label."""
     with st.chat_message(_LABELS[speaker], avatar=_AVATARS[speaker]):
-        st.markdown(f"**{_LABELS[speaker]}**\n\n{content}")
+        chip = f" &nbsp;·&nbsp; 🧠 _reflected: {reflection}_" if reflection else ""
+        st.markdown(f"**{_LABELS[speaker]}**{chip}\n\n{content}")
 
 
 def _refresh_memory_snapshot(engine: DebateEngine) -> None:
@@ -373,7 +404,7 @@ def _render_memory_section(memory: AgentMemory) -> str:
 
 
 for msg in st.session_state.messages:
-    _render_message(msg["speaker"], msg["content"])
+    _render_message(msg["speaker"], msg["content"], reflection=msg.get("reflection"))
 
 if st.session_state.last_error is not None:
     st.error(st.session_state.last_error)
@@ -479,6 +510,11 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
             behavior=behavior,
             memory_store=memory_store,
             run_id=run_id,
+            reflector=(
+                Reflector(llm_client=client, topic=topic_text, model=settings.model_name)
+                if (memory_store is not None and reflection_enabled)
+                else None
+            ),
         )
     except OllamaUnavailableError as exc:
         st.session_state.last_error = (
@@ -517,8 +553,16 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                     header + (final_text if final_text else "_(stopped)_"),
                 )
             if final_text:
+                diff = engine.last_reflection_for(speaker)  # type: ignore[arg-type]
+                reflection_label = (
+                    diff.summary() if (diff is not None and not diff.is_empty) else None
+                )
                 st.session_state.messages.append(
-                    {"speaker": speaker, "content": final_text},
+                    {
+                        "speaker": speaker,
+                        "content": final_text,
+                        "reflection": reflection_label,
+                    },
                 )
             _refresh_memory_snapshot(engine)
             if stop_check():
