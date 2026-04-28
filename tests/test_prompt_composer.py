@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from prompts import (
+from auto_debate.prompts import (
     DEFAULT_BEHAVIOR_NAME,
     DEFAULT_PERSONA_NAME,
     DEFENDER_ROLE,

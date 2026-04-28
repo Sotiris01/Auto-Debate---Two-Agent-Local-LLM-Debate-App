@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from quality import (
+from auto_debate.quality import (
     DEFAULT_THRESHOLDS,
     QualityThresholds,
     TurnMetrics,
@@ -238,8 +238,8 @@ def test_engine_to_markdown_with_quality_metrics(tmp_path: pytest.TempPathFactor
     from dataclasses import replace as dc_replace
     from typing import Any
 
-    from config import Settings
-    from engine import DebateEngine
+    from auto_debate.config import Settings
+    from auto_debate.engine import DebateEngine
 
     class _Client:
         def __init__(self, scripts: list[list[str]]) -> None:

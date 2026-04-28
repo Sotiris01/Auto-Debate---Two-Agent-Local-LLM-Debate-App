@@ -8,7 +8,7 @@ from typing import Any
 
 import pytest
 
-from judge import (
+from auto_debate.judge import (
     DIMENSIONS,
     Judge,
     JudgeReport,
@@ -309,7 +309,7 @@ def test_report_round_trip_through_to_dict() -> None:
 
 
 def test_dimension_score_validates_range() -> None:
-    from judge import DimensionScore
+    from auto_debate.judge import DimensionScore
 
     with pytest.raises(ValueError, match="out of range"):
         DimensionScore(key="x", qid="Q1", title="t", score=6)

@@ -6,10 +6,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-from config import Settings
-from engine import DebateEngine
-from memory import AgentMemory, MemoryStore
-from reflection import (
+from auto_debate.config import Settings
+from auto_debate.engine import DebateEngine
+from auto_debate.memory import AgentMemory, MemoryStore
+from auto_debate.reflection import (
     MemoryUpdate,
     Reflector,
     apply_update,

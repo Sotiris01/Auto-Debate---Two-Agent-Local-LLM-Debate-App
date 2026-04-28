@@ -20,9 +20,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import configure_logging, load_settings
-from engine import DebateEngine
-from llm import OllamaClient, chat_options
+from auto_debate.config import configure_logging, load_settings
+from auto_debate.engine import DebateEngine
+from auto_debate.llm import OllamaClient, chat_options
 
 
 def bench_single_turn(topic: str) -> None:

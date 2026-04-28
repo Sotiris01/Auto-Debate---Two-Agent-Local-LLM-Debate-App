@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from prompts import (
+from auto_debate.prompts import (
     BUILTIN_PRESETS,
     OFFENDER_ROLE,
     PromptComposer,
@@ -189,8 +189,8 @@ def test_engine_per_agent_overrides_change_defender_prompt(tmp_path: object) -> 
     from collections.abc import Iterator
     from typing import Any
 
-    from config import Settings
-    from engine import DebateEngine
+    from auto_debate.config import Settings
+    from auto_debate.engine import DebateEngine
 
     class _Client:
         def __init__(self) -> None:

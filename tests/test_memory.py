@@ -26,9 +26,9 @@ from typing import Any
 
 import pytest
 
-from config import Settings
-from engine import DebateEngine
-from memory import AgentMemory, MemoryStore, MemoryStoreError, render_prompt_block
+from auto_debate.config import Settings
+from auto_debate.engine import DebateEngine
+from auto_debate.memory import AgentMemory, MemoryStore, MemoryStoreError, render_prompt_block
 
 # --- helpers ----------------------------------------------------------------
 

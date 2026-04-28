@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from prompts import (
+from auto_debate.prompts import (
     DEFENDER_SYSTEM_TEMPLATE,
     MAX_TOPIC_LENGTH,
     OFFENDER_SYSTEM_TEMPLATE,

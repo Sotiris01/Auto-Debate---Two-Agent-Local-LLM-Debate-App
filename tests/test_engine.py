@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from config import Settings
-from engine import DebateEngine, DebateTurn
+from auto_debate.config import Settings
+from auto_debate.engine import DebateEngine, DebateTurn
 
 # --- helpers ----------------------------------------------------------------
 

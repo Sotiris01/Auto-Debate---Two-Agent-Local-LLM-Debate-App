@@ -7,8 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import load_settings
-from llm import OllamaClient
+from auto_debate.config import load_settings
+from auto_debate.llm import OllamaClient
 
 settings = load_settings()
 print(f"settings: {settings}")

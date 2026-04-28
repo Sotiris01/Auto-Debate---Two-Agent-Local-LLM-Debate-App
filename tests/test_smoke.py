@@ -9,9 +9,9 @@ from __future__ import annotations
 
 
 def test_imports() -> None:
-    import config  # noqa: F401
-    import engine  # noqa: F401
-    import llm  # noqa: F401
-    import prompts  # noqa: F401
+    from auto_debate import config, engine, llm, prompts
 
-    assert True
+    assert config is not None
+    assert engine is not None
+    assert llm is not None
+    assert prompts is not None

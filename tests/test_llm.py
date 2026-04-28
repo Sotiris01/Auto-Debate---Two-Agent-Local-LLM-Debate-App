@@ -13,8 +13,8 @@ from typing import Any
 
 import pytest
 
-from config import Settings
-from llm import (
+from auto_debate.config import Settings
+from auto_debate.llm import (
     ModelNotFoundError,
     OllamaClient,
     OllamaUnavailableError,
