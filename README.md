@@ -142,6 +142,35 @@ Behaviors use the same shape under `prompts/library/behaviors/` with a
 `directives` array. The registry picks them up automatically on next
 import — no code change required.
 
+## Judge agent (optional)
+
+Toggle **Enable judge** in the sidebar to run a third LLM pass after the
+final turn. The judge sees only the topic and the rendered transcript
+(no memory files, no system prompts) and emits a strict JSON scorecard
+with one score per dimension Q1-Q9, mirroring the rubric in
+[report.md](report.md):
+
+| # | Dimension | What it measures |
+| --- | --- | --- |
+| Q1 | On-topic adherence | Drift vs anchored to topic |
+| Q2 | Logical connection | Each turn rebuts/builds on the previous |
+| Q3 | Persona distinctiveness | Offender vs Defender voices |
+| Q4 | Argument progression | New ground vs looping |
+| Q5 | Language quality | Lexical variety, prose cleanliness |
+| Q6 | Factual grounding | Concrete, named, checkable facts |
+| Q7 | Fallacy frequency | 5 = few or none |
+| Q8 | Structure & conclusion | Pacing and a real closing statement |
+| Q9 | Safety / on-rails | Slurs, role breaks, PII, etc. |
+
+Scores are 1–5 (excellent), an unweighted mean is shown as **Overall**,
+and a one-paragraph headline verdict appears below the table. When
+agent memory is enabled, the same report is persisted alongside each
+run as `runs/<run_id>/report.json` (machine-readable) and
+`runs/<run_id>/report.md` (GitHub-renderable, structurally identical to
+the manual `report.md`). Malformed judge output, LLM errors, and
+out-of-range scores degrade gracefully — the debate transcript is
+unaffected.
+
 ## Performance
 
 Reference numbers from a local CPU run of `scripts/bench.py` against

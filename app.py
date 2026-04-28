@@ -20,6 +20,7 @@ import streamlit as st
 
 from config import ConfigError, Settings, configure_logging, load_settings
 from engine import DebateEngine
+from judge import Judge, JudgeReport, render_report_markdown, save_report
 from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
 from memory import AgentMemory, MemoryStore
 from prompts import (
@@ -105,6 +106,7 @@ def _init_state() -> None:
         "last_error": None,
         "run_id": None,  # str | None — set when a debate starts
         "memory_snapshot": {},  # dict[agent_id, AgentMemory]
+        "judge_report": None,  # JudgeReport | None — Phase 15
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -278,6 +280,18 @@ with st.sidebar:
         ),
     )
 
+    judge_enabled = st.toggle(
+        "Enable judge",
+        value=bool(base_settings.judge_enabled),
+        disabled=st.session_state.running,
+        help=(
+            "After the final turn, run a third LLM pass that scores the "
+            "debate on nine quality dimensions (Q1-Q9) and renders a "
+            "scorecard below the chat. When agent memory is enabled the "
+            "report is also persisted to runs/<run_id>/report.{json,md}."
+        ),
+    )
+
     st.divider()
 
     if st.button("Check Ollama", disabled=st.session_state.running, use_container_width=True):
@@ -313,6 +327,7 @@ def _runtime_settings() -> Settings:
         web_research_enabled=bool(memory_enabled and web_research_enabled),
         web_search_adapter=str(web_search_adapter),
         closing_round_enabled=bool(closing_round_enabled),
+        judge_enabled=bool(judge_enabled),
     )
 
 
@@ -376,6 +391,7 @@ if reset_clicked:
     st.session_state.last_error = None
     st.session_state.run_id = None
     st.session_state.memory_snapshot = {}
+    st.session_state.judge_report = None
     # Bumping the nonce changes the topic textbox's widget key, which
     # forces Streamlit to construct a fresh input on the next rerun and
     # honor ``value=""`` (otherwise the previously-typed value would be
@@ -570,7 +586,59 @@ if st.session_state.messages and not st.session_state.running:
     )
 
 
+# --- judge scorecard --------------------------------------------------------
+
+
+def _render_judge_scorecard(report: JudgeReport) -> None:
+    """Render a judge :class:`JudgeReport` as a Streamlit panel."""
+    st.subheader("⚖️ Judge scorecard")
+    st.caption(
+        f"Overall **{report.overall:.1f} / 5** · judge model `{report.model or 'unknown'}`",
+    )
+    rows: list[dict[str, Any]] = [
+        {
+            "#": s.qid,
+            "Dimension": s.title,
+            "Score": f"{s.score} / 5",
+            "Comment": s.comment,
+        }
+        for s in report.scores
+    ]
+    st.table(rows)
+    if report.verdict:
+        st.markdown(f"> {report.verdict}")
+    st.download_button(
+        "⬇️ Download judge report (.md)",
+        data=render_report_markdown(report),
+        file_name="report.md",
+        mime="text/markdown",
+        use_container_width=False,
+        key="download_judge_report",
+    )
+
+
+_judge_report = st.session_state.get("judge_report")
+if _judge_report is not None and not st.session_state.running:
+    _render_judge_scorecard(_judge_report)
+
+
 # --- live streaming ---------------------------------------------------------
+
+
+def _run_judge(
+    client: OllamaClient,
+    settings: Settings,
+    engine: DebateEngine,
+    topic_text: str,
+) -> JudgeReport | None:
+    """Run a single post-debate judge pass and return the parsed report."""
+    transcript = [(t.speaker, t.content) for t in engine.transcript()]
+    judge = Judge(llm_client=client, model=settings.model_name)
+    try:
+        return judge.evaluate(topic=topic_text, transcript=transcript)
+    except Exception as exc:  # defensive: judge failures must not crash the UI
+        st.warning(f"Judge failed: {type(exc).__name__}: {exc}")
+        return None
 
 
 def _run_debate(settings: Settings, topic_text: str) -> None:
@@ -720,6 +788,20 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
         st.session_state.last_error = f"Lost connection to Ollama mid-debate.\n\n```\n{exc}\n```"
     except ModelNotFoundError as exc:
         st.session_state.last_error = f"Model became unavailable: {exc}"
+    else:
+        # Phase 15: optional post-debate judge pass.
+        if settings.judge_enabled and engine.transcript() and not stop_check():
+            with st.spinner("Judge is scoring the debate…"):
+                report = _run_judge(client, settings, engine, topic_text)
+            if report is not None:
+                st.session_state.judge_report = report
+                if memory_store is not None and run_id is not None:
+                    try:
+                        save_report(report, run_dir=memory_store.run_dir(run_id))
+                    except OSError as exc:
+                        st.warning(
+                            f"Judge report could not be saved: {type(exc).__name__}: {exc}",
+                        )
 
 
 # --- start handler ----------------------------------------------------------
@@ -739,6 +821,7 @@ if start_clicked and topic.strip():
     st.session_state.pending_topic = topic.strip()
     st.session_state.run_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     st.session_state.memory_snapshot = {}
+    st.session_state.judge_report = None
     st.rerun()
 
 if st.session_state.running and st.session_state.pending_topic:
