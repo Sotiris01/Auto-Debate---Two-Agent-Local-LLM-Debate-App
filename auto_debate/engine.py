@@ -13,6 +13,7 @@ agents debate through a single chat-model interface.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
@@ -148,6 +149,7 @@ class DebateEngine:
     _offender_msgs: list[dict[str, Any]] = field(init=False)
     _defender_msgs: list[dict[str, Any]] = field(init=False)
     _turns: list[DebateTurn] = field(init=False, default_factory=list)
+    _turn_seconds: list[float] = field(init=False, default_factory=list)
     _offender_has_spoken: bool = field(init=False, default=False)
     _composer: PromptComposer = field(init=False)
     _memories: dict[AgentId, AgentMemory] = field(init=False, default_factory=dict)
@@ -360,6 +362,18 @@ class DebateEngine:
         """Return a copy of the committed transcript so far."""
         return list(self._turns)
 
+    def turn_seconds(self) -> list[float]:
+        """Return per-turn wall-clock seconds, in commit order (Phase 22).
+
+        Parallel to :meth:`transcript` — element ``i`` is the wall-clock
+        cost of turn ``i + 1``. Aborted (stopped) turns produce no entry.
+        """
+        return list(self._turn_seconds)
+
+    def last_turn_seconds(self) -> float | None:
+        """Wall-clock seconds of the most recently committed turn, or ``None``."""
+        return self._turn_seconds[-1] if self._turn_seconds else None
+
     @property
     def offender_messages(self) -> list[dict[str, Any]]:
         return list(self._offender_msgs)
@@ -482,14 +496,19 @@ class DebateEngine:
 
         buf: list[str] = []
         aborted = False
+        # Phase 22: bookend the streaming call with ``time.perf_counter()``
+        # so the UI / run.json can report wall-clock seconds per turn.
+        started = time.perf_counter()
         for token in self.llm_client.stream_chat(request, options=options):
             if stop_check is not None and stop_check():
                 aborted = True
                 break
             buf.append(token)
             yield token
+        elapsed = time.perf_counter() - started
 
         if not aborted and buf:
+            self._turn_seconds.append(elapsed)
             self._commit_turn(speaker, "".join(buf))
 
     # --- top-level loop ----------------------------------------------------

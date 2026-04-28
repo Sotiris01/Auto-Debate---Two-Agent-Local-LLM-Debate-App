@@ -37,7 +37,8 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 19 | Stance-driven query planner | `QueryPlan` + `plan_queries` + Jaccard dedup + `runs/.../<agent>.plan.json` | 261 | ✅ |
 | 20 | Per-result favourability filter | `FilteredHit` + `filter_result` + URL source-kind heuristic + `runs/.../<agent>.{hits,drops}.json` | 297 | ✅ |
 | 21 | Structured, attributed Knowledge synthesis | `KnowledgeEntry` + `synthesise_knowledge` + citation linter + per-source-kind attribution + `runs/.../<agent>.knowledge.json` | 333 | ✅ |
-**CI baseline:** 333 / 333 tests passing · mypy strict on 19 source files.
+| 22 | Run metadata & transcript auto-save | `RunMetadata` + `ResearchSummary` + per-turn timing + `runs/.../auto_debate_transcript.md` + `runs/.../run.json` | 353 | ✅ |
+**CI baseline:** 353 / 353 tests passing · mypy strict on 20 source files.
 
 ---
 
@@ -78,7 +79,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 19 | Stance-driven query planner | implementation | 20 — ✅ shipped |
 | 20 | Per-result favourability filter | implementation | 21 — ✅ shipped |
 | 21 | Structured, attributed Knowledge synthesis | implementation | — ✅ shipped |
-| 22 | Run metadata & transcript auto-save | polish | — |
+| 22 | Run metadata & transcript auto-save | polish | — ✅ shipped |
 
 ---
 
@@ -202,22 +203,19 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 22 — Run Metadata & Transcript Auto-save _(deferred from old Phase 16)_
+### Phase 22 — Run Metadata & Transcript Auto-save _(✅ shipped)_
 
-**Goal:** Every run produces a complete, self-contained record without
-any manual download step. Independent of the research rework above.
+**Outcome:** Every completed debate now produces a self-contained, on-disk record without any manual download step. The new `auto_debate.run_metadata` module exposes two frozen dataclasses (`ResearchSummary`, `RunMetadata`) and two pure persistence helpers (`persist_transcript`, `persist_run_metadata`); the Streamlit app calls them from a `finally:` clause around the debate loop so the artefacts land regardless of whether the run completed, was Stop-clicked, or aborted on a mid-debate LLM error. Per-turn wall-clock seconds are captured by `time.perf_counter()` bookends inside `DebateEngine.run_one_turn` and surfaced via `engine.turn_seconds()` / `engine.last_turn_seconds()`; aborted turns produce no entry. `Researcher` accumulates a per-agent `ResearchSummary` (`<query> → N hits → M kept` lines, plus aggregate `total_hits` / `kept_hits`) accessible via `researcher.summaries`; the app snapshots it after the research pass, surfaces a non-fatal `st.warning` whenever an agent finishes with `kept_hits == 0`, and renders a collapsible "Research summary" expander before the debate begins. The zero-knowledge log line is now `WARNING` (was `INFO`) so users see a clear signal when the synthesiser falls back to the `"No verified sources for this turn."` sentinel. CI: ruff + ruff format + mypy strict (20 source files) + pytest **353 / 353** all green; no new third-party deps.
 
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| Auto-save transcript | Write `runs/<run_id>/auto_debate_transcript.md` at the end of `_run_debate` when memory is enabled. |
-| `run.json` | Persist settings snapshot + `started_at`, `finished_at`, per-phase wall-clock seconds, per-turn seconds. |
-| Per-turn timing | Instrument `engine.run_one_turn` with `time.perf_counter` bookends; store on the message dict alongside `metrics`. |
-| Research summary | Expose `<query> → N hits → M kept` per agent in `run.json` and in a collapsible UI panel (now consumes Phase 19/20 artefacts). |
-| Zero-knowledge warning | Promote the "research populated 0 entries" log to `WARNING`; surface it as `st.warning`. |
+| `auto_debate/run_metadata.py` — `ResearchSummary` + `RunMetadata` + `settings_snapshot` + `persist_transcript` + `persist_run_metadata` | ✅ |
+| `DebateEngine.run_one_turn` instrumented with `time.perf_counter()` bookends; `turn_seconds()` / `last_turn_seconds()` accessors | ✅ |
+| Per-turn `seconds` field stamped onto each `st.session_state.messages` entry alongside `metrics` | ✅ |
+| `Researcher.summaries` populated per agent (`<query> → N hits → M kept`); zero-knowledge log promoted to `WARNING` | ✅ |
+| `_run_debate` `finally:` writes `runs/<run_id>/auto_debate_transcript.md` and `runs/<run_id>/run.json` whenever memory is enabled | ✅ |
+| `run.json` carries `topic`, `started_at`, `finished_at`, `total_seconds`, `settings` snapshot, `per_turn_seconds`, and `research_summary` | ✅ |
+| Sidebar / mid-debate UI surfaces zero-survival as `st.warning` and renders the “Research summary” expander | ✅ |
+| Tests (`tests/test_run_metadata.py` ×16 + 3 in `test_engine.py` + 2 in `test_research.py`) | ✅ |
 
-**Phase 22 Exit Criteria**
-- [ ] `runs/<run_id>/auto_debate_transcript.md` exists after every completed debate when memory is enabled.
-- [ ] `runs/<run_id>/run.json` contains at minimum: `topic`, `started_at`, `finished_at`, `total_seconds`, `settings`, `per_turn_seconds`, `research_summary`.
-- [ ] CI green (ruff + mypy + pytest).
+> **v0.3 track ready to tag.** Phases 16-22 are all green; the four-stage research DAG is implemented behind `stance_analysis_enabled` and the audit trail is now complete (`<agent>.{plan,hits,drops,knowledge}.json` plus `run.json` and the auto-saved transcript). Flipping the stance flag to `True` by default and cutting **`v0.3.0`** is the remaining track exit step.

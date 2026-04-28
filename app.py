@@ -12,6 +12,7 @@ which destroys the live generator and halts streaming within one token.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, cast
@@ -22,7 +23,7 @@ from auto_debate.config import ConfigError, Settings, configure_logging, load_se
 from auto_debate.engine import DebateEngine
 from auto_debate.judge import Judge, JudgeReport, render_report_markdown, save_report
 from auto_debate.llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
-from auto_debate.memory import AgentMemory, MemoryStore
+from auto_debate.memory import AgentId, AgentMemory, MemoryStore
 from auto_debate.prompts import (
     DEFAULT_BEHAVIOR_NAME,
     DEFAULT_PERSONA_NAME,
@@ -41,6 +42,13 @@ from auto_debate.research import (
     OfflineFixtureAdapter,
     Researcher,
     SearchAdapter,
+)
+from auto_debate.run_metadata import (
+    ResearchSummary,
+    RunMetadata,
+    persist_run_metadata,
+    persist_transcript,
+    settings_snapshot,
 )
 
 
@@ -660,6 +668,10 @@ def _run_judge(
 
 def _run_debate(settings: Settings, topic_text: str) -> None:
     """Drive a full debate, rendering tokens into chat-message placeholders."""
+    # Phase 22: ISO-8601 UTC timestamps + per-turn timing for ``run.json``.
+    started_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    started_perf = time.perf_counter()
+    research_summaries: dict[AgentId, ResearchSummary] = {}
     try:
         client = OllamaClient(settings)
         client.ensure_model_available()
@@ -721,6 +733,32 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                         st.warning(
                             f"Research failed for {_LABELS[agent_id]}: {type(exc).__name__}: {exc}",
                         )
+            # Phase 22: snapshot the per-agent research summary and
+            # surface a non-fatal warning when an agent finished the
+            # research pass without a single kept hit.
+            research_summaries = dict(researcher.summaries)
+            for agent_id, summary in research_summaries.items():
+                if summary.kept_hits == 0:
+                    st.warning(
+                        f"Research populated 0 verified sources for "
+                        f"{_LABELS[agent_id]} — Knowledge will fall back to a "
+                        f"neutral sentinel.",
+                        icon="⚠️",
+                    )
+            # Phase 22: collapsible per-agent research summary panel
+            # (consumes Phase 19 / 20 artefacts).
+            if research_summaries:
+                with st.expander("🔎 Research summary", expanded=False):
+                    for agent_id, summary in research_summaries.items():
+                        st.markdown(
+                            f"**{_LABELS[agent_id]}** — "
+                            f"{summary.kept_hits} kept / {summary.total_hits} total",
+                        )
+                        if summary.queries:
+                            for line in summary.queries:
+                                st.markdown(f"- {line}")
+                        else:
+                            st.caption("_no queries planned_")
         engine = DebateEngine(
             settings,
             client,
@@ -791,12 +829,16 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                     if latest is not None
                     else None
                 )
+                # Phase 22: per-turn wall-clock seconds, recorded by the
+                # engine via ``time.perf_counter`` bookends.
+                turn_seconds = engine.last_turn_seconds()
                 st.session_state.messages.append(
                     {
                         "speaker": speaker,
                         "content": final_text,
                         "reflection": reflection_label,
                         "metrics": metrics_payload,
+                        "seconds": turn_seconds,
                     },
                 )
             _refresh_memory_snapshot(engine)
@@ -827,6 +869,38 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                         st.warning(
                             f"Judge report could not be saved: {type(exc).__name__}: {exc}",
                         )
+    finally:
+        # Phase 22: persist transcript + run.json regardless of how the
+        # debate ended (stopped, completed, or aborted by an LLM error)
+        # so the audit trail is always available.
+        if memory_store is not None and run_id is not None and engine.transcript():
+            run_dir = memory_store.root / run_id
+            finished_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            total_seconds = time.perf_counter() - started_perf
+            try:
+                persist_transcript(
+                    engine.to_markdown(include_quality_metrics=True),
+                    run_dir=run_dir,
+                )
+            except OSError as exc:
+                st.warning(
+                    f"Transcript could not be auto-saved: {type(exc).__name__}: {exc}",
+                )
+            try:
+                metadata = RunMetadata(
+                    topic=topic_text,
+                    started_at=started_at,
+                    finished_at=finished_at,
+                    total_seconds=total_seconds,
+                    settings=settings_snapshot(settings),
+                    per_turn_seconds=tuple(engine.turn_seconds()),
+                    research_summary=tuple(research_summaries.values()),
+                )
+                persist_run_metadata(metadata, run_dir=run_dir)
+            except (OSError, ValueError) as exc:
+                st.warning(
+                    f"Run metadata could not be saved: {type(exc).__name__}: {exc}",
+                )
 
 
 # --- start handler ----------------------------------------------------------

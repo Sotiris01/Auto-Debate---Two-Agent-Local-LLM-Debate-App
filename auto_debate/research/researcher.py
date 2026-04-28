@@ -55,6 +55,7 @@ from auto_debate.research.stance import (
     analyse_topic,
     render_stance_lines,
 )
+from auto_debate.run_metadata import ResearchSummary
 
 __all__ = [
     "DuckDuckGoAdapter",
@@ -407,8 +408,19 @@ class Researcher:
     limits: ResearchLimits = field(default_factory=ResearchLimits)
     stance_enabled: bool = False
     model: str | None = None
+    _summaries: dict[AgentId, ResearchSummary] = field(init=False, default_factory=dict)
 
     # --- public API ----------------------------------------------------
+
+    @property
+    def summaries(self) -> dict[AgentId, ResearchSummary]:
+        """Per-agent research summaries collected so far (Phase 22).
+
+        Populated by :meth:`populate_for_agent`; consumed by the UI and
+        by ``run.json``. The dict is mutable on purpose so callers can
+        snapshot it via ``dict(researcher.summaries)``.
+        """
+        return self._summaries
 
     def populate_for_agent(
         self,
@@ -474,6 +486,10 @@ class Researcher:
         # persisted at the end of the pass for audit.
         filter_outcomes: list[FilteredHit] = []
         filter_active = self.stance_enabled and brief is not None
+        # Phase 22: per-query (hits, kept) stats accumulated for the
+        # run.json research summary and the UI panel. Insertion order
+        # follows the planned query order.
+        query_stats: dict[str, dict[str, int]] = {q: {"hits": 0, "kept": 0} for q in queries}
 
         for query_idx, query in enumerate(queries, start=1):
             if time.monotonic() >= deadline:
@@ -493,6 +509,7 @@ class Researcher:
             for result in results:
                 if time.monotonic() >= deadline:
                     break
+                query_stats[query]["hits"] += 1
                 if filter_active and brief is not None:
                     hit = filter_result(
                         self.llm_client,
@@ -502,7 +519,9 @@ class Researcher:
                         model=self.model,
                     )
                     filter_outcomes.append(hit)
-                    if hit.verdict == "drop":
+                    if hit.verdict == "keep":
+                        query_stats[query]["kept"] += 1
+                    else:
                         _log.debug(
                             "filter dropped %s (reason=%s)",
                             result.url,
@@ -521,6 +540,7 @@ class Researcher:
                     continue
                 existing.add(entry)
                 new_entries.append(entry)
+                query_stats[query]["kept"] += 1
 
         if filter_active and filter_outcomes:
             try:
@@ -558,11 +578,20 @@ class Researcher:
                 run_id=self.run_id,
             )
             knowledge_lines = render_knowledge_lines(entries)
-            _log.info(
-                "knowledge synthesis produced %d entries for agent=%s",
-                len(entries),
-                agent_id,
-            )
+            if entries:
+                _log.info(
+                    "knowledge synthesis produced %d entries for agent=%s",
+                    len(entries),
+                    agent_id,
+                )
+            else:
+                # Phase 22: zero-survival is a quality signal worth
+                # surfacing in the UI — promote to WARNING.
+                _log.warning(
+                    "knowledge synthesis produced 0 entries for agent=%s; falling back to '%s'",
+                    agent_id,
+                    knowledge_lines[0],
+                )
 
         if knowledge_lines is not None:
             # Phase 21 path: replace the Knowledge section wholesale
@@ -581,6 +610,7 @@ class Researcher:
                 len(knowledge_lines),
                 agent_id,
             )
+            self._record_summary(agent_id, query_stats)
             return updated
 
         if new_entries or stance_lines != memory.stance:
@@ -593,15 +623,51 @@ class Researcher:
                 turn_index=memory.turn_index,
             )
             self.memory_store.save(self.run_id, updated)
-            _log.info(
-                "research populated %d new knowledge entries for agent=%s",
-                len(new_entries),
+            if new_entries:
+                _log.info(
+                    "research populated %d new knowledge entries for agent=%s",
+                    len(new_entries),
+                    agent_id,
+                )
+            else:
+                _log.warning(
+                    "research populated 0 new knowledge entries for agent=%s",
+                    agent_id,
+                )
+            self._record_summary(agent_id, query_stats)
+            return updated
+        if not new_entries:
+            _log.warning(
+                "research populated 0 new knowledge entries for agent=%s",
                 agent_id,
             )
-            return updated
+        self._record_summary(agent_id, query_stats)
         return memory
 
     # --- internals -----------------------------------------------------
+
+    def _record_summary(
+        self,
+        agent_id: AgentId,
+        query_stats: dict[str, dict[str, int]],
+    ) -> None:
+        """Build and stash a :class:`ResearchSummary` for ``agent_id`` (Phase 22).
+
+        ``query_stats`` is keyed by query string and holds per-query
+        ``{"hits", "kept"}`` counts. The rendered ``queries`` lines are
+        ``"<query> → N hits → M kept"`` in plan order.
+        """
+        lines = tuple(
+            f"{q} \u2192 {s['hits']} hits \u2192 {s['kept']} kept" for q, s in query_stats.items()
+        )
+        total_hits = sum(s["hits"] for s in query_stats.values())
+        kept_hits = sum(s["kept"] for s in query_stats.values())
+        self._summaries[agent_id] = ResearchSummary(
+            agent_id=agent_id,
+            queries=lines,
+            total_hits=total_hits,
+            kept_hits=kept_hits,
+        )
 
     def _plan_queries(self, topic: str, agent_id: AgentId) -> list[str]:
         messages = [
