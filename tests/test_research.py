@@ -325,3 +325,52 @@ def test_research_limits_validation() -> None:
         ResearchLimits(max_results_per_query=0)
     with pytest.raises(ValueError):
         ResearchLimits(wall_clock_budget_seconds=0.0)
+
+
+# --- Phase 22: research summary --------------------------------------------
+
+
+def test_researcher_records_summary_after_populate(tmp_path: Path) -> None:
+    fixture = _three_offender_results()
+    adapter = OfflineFixtureAdapter(fixture=fixture)
+    client = _ScriptedClient(
+        responses=[
+            '["risks of x"]',
+            '{"summary": "First risk.", "tag": "supports"}',
+            '{"summary": "Off-topic.", "tag": "irrelevant"}',
+            '{"summary": "Third risk.", "tag": "supports"}',
+        ],
+    )
+    store = MemoryStore(root=tmp_path)
+    researcher = Researcher(
+        llm_client=client,
+        adapter=adapter,
+        memory_store=store,
+        run_id="run",
+    )
+    researcher.populate_for_agent("offender", topic="X is good")
+    summary = researcher.summaries["offender"]
+    assert summary.agent_id == "offender"
+    assert summary.total_hits == 3
+    assert summary.kept_hits == 2  # one irrelevant dropped
+    assert len(summary.queries) == 1
+    assert "risks of x" in summary.queries[0]
+    assert "3 hits" in summary.queries[0]
+    assert "2 kept" in summary.queries[0]
+
+
+def test_researcher_summary_empty_when_no_queries(tmp_path: Path) -> None:
+    adapter = OfflineFixtureAdapter(fixture={})
+    client = _ScriptedClient(responses=["[]"])
+    store = MemoryStore(root=tmp_path)
+    researcher = Researcher(
+        llm_client=client,
+        adapter=adapter,
+        memory_store=store,
+        run_id="run",
+    )
+    researcher.populate_for_agent("offender", topic="nothing matches")
+    summary = researcher.summaries["offender"]
+    # Planner returned [] -> falls back to topic, single query, zero hits.
+    assert summary.total_hits == 0
+    assert summary.kept_hits == 0

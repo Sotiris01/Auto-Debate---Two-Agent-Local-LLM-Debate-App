@@ -244,3 +244,30 @@ def test_to_markdown_lists_each_turn() -> None:
     assert "Turn 2 — Defender" in md
     assert "o1 text" in md
     assert "d1 text" in md
+
+
+# --- Phase 22: per-turn timing --------------------------------------------
+
+
+def test_run_one_turn_records_wall_clock_seconds() -> None:
+    eng = DebateEngine(_settings(), _ScriptedClient([["hi", " there"]]), "topic A")
+    assert eng.last_turn_seconds() is None
+    list(eng.run_one_turn("offender"))
+    seconds = eng.last_turn_seconds()
+    assert seconds is not None
+    assert seconds >= 0.0
+    assert eng.turn_seconds() == [seconds]
+
+
+def test_run_one_turn_does_not_record_when_aborted() -> None:
+    eng = DebateEngine(_settings(), _ScriptedClient([["x", "y"]]), "topic")
+    list(eng.run_one_turn("offender", stop_check=lambda: True))
+    assert eng.last_turn_seconds() is None
+    assert eng.turn_seconds() == []
+
+
+def test_turn_seconds_accumulates_per_turn() -> None:
+    eng = DebateEngine(_settings(), _ScriptedClient([["a"], ["b"]]), "topic")
+    list(eng.run_one_turn("offender"))
+    list(eng.run_one_turn("defender"))
+    assert len(eng.turn_seconds()) == 2
