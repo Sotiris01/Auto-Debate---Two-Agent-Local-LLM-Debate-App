@@ -31,8 +31,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 13 | Quality guards | n-gram novelty, TF-IDF adherence, loop detection, UI chips | 23 | ✅ |
 | 14 | Persona & behavior library | 6 personas · 6 behaviors · 4 presets · compatibility check | 28 | ✅ |
 | 15 | Judge / evaluator agent | `judge.py`, 9-dim scorecard, `report.{json,md}` persistence | 26 | ✅ |
-| 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ |
-
+| 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ || 17 | Agentic-research literature review | `docs/research/agentic_research.md` design doc + Mermaid pipeline diagram + risk register | 223 | ✅ |
 **CI baseline:** 223 / 223 tests passing · mypy strict on 13 source files.
 
 ---
@@ -69,7 +68,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | # | Theme | Kind | Blocks |
 |---|---|---|---|
 | 16 | Repository layout | groundwork | all later — ✅ shipped |
-| 17 | Agentic-research literature review | research | 18-21 |
+| 17 | Agentic-research literature review | research | 18-21 — ✅ shipped |
 | 18 | Topic analysis & per-agent stance | implementation | 19 |
 | 19 | Stance-driven query planner | implementation | 20 |
 | 20 | Per-result favourability filter | implementation | 21 |
@@ -107,41 +106,25 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 17 — Agentic-Research Literature Review _(planned, no code)_
+### Phase 17 — Agentic-Research Literature Review _(✅ shipped)_
 
-**Goal:** Before changing the research pipeline, do an explicit
-literature pass on how comparable systems do "agent reads topic →
-plans queries → curates results → writes a sourced brief". Output is a
-**design doc** that pins decisions for Phases 18-21; no production code
-changes ship in this phase.
+**Outcome:** [docs/research/agentic_research.md](docs/research/agentic_research.md) committed and linked from the README. Eight sources surveyed (six adopted, two deliberately rejected — iterative-deepening and LangGraph-as-a-dep). The decision log pins the prompt shape, strict JSON output schema, failure mode, and hard cap for each of the four pipeline stages (stance / plan / filter / synthesise). Mermaid pipeline diagram + per-agent LLM-call budget (≤ 28 calls) + top-5 risk register all in one doc. No production code changes shipped this phase.
 
-**Sources to survey** (non-exhaustive starting list)
-
-| Source | What we want from it |
+| Item | Status |
 |---|---|
-| AutoGen / Magentic-One | Multi-agent search loops, query refinement patterns |
-| LangGraph & `Adu-2115/Debate-DAG-LangGraph` | Branching research → debate DAG topology |
-| `aliasad059/RedDebate` | Long-term memory + per-stance search |
-| Stanford STORM (`assafelovic/gpt-researcher`) | Outline → per-section search → cited synthesis |
-| Perplexity / You.com architecture posts | Citation-first answer construction |
-| OpenAI "Deep Research" blog + leaks | Iterative-deepening query plans |
-| ReAct / Toolformer / Self-Ask papers | Decompose-question-then-search prompting |
-| RAG-Fusion / HyDE / Query2Doc | Query expansion / rewriting techniques |
+| `docs/research/agentic_research.md` committed | ✅ |
+| README links to the design doc | ✅ |
+| ≥ 6 sources cited with one-line takeaways | ✅ (8 sources) |
+| Decision log: prompt shape + JSON schema for all 4 stages | ✅ (§2.1-2.4) |
+| Mermaid pipeline diagram | ✅ (§3) |
+| Risk register (top 5) with mitigations | ✅ (§4) |
+| Phases 18-21 reference the §-numbers fixed here | ✅ (forward-refs added below) |
 
-**Planned deliverables**
-
-| Item | Detail |
-|---|---|
-| `docs/research/agentic_research.md` | 1-2 page synthesis: prior-art summary, what we are stealing, what we are *not* doing. |
-| Decision log | For each of the four pipeline stages (stance, plan, filter, synthesise), pin: prompt shape, output schema, failure mode, hard cap. |
-| Diagrams | Mermaid flowchart of the v0.3 research pipeline; placed in `docs/research/`. |
-| Risk register | Top 5 things that can go wrong (e.g. hallucinated citations, cycle-of-search, prompt-injection from result snippets) with mitigations. |
-
-**Phase 17 Exit Criteria**
-- [ ] `docs/research/agentic_research.md` committed and linked from README.
-- [ ] At least 6 of the sources above cited with one-line takeaways.
-- [ ] Decision log answers: "what is the *exact* prompt shape and JSON schema for each of the four pipeline stages?"
-- [ ] Phases 18-21 below are updated to reference the decisions made here.
+> **Key decisions binding Phases 18-21:**
+> 1. Pipeline is a fixed four-stage DAG: `stance → plan → filter → synthesise`. No agent-to-agent chat during research; no iterative deepening; no tool use beyond `SearchAdapter`.
+> 2. Every stage is exactly one LLM call (filter is one-call-per-hit). Total per-agent worst case: `3 + N` calls where `N ≤ max_queries × max_results_per_query`.
+> 3. Strict JSON output gated by stage-specific delimiters (`<STANCE>`, `<PLAN>`, `<FILTER>`, `<KNOWLEDGE>`); parser failures degrade gracefully (drop / fallback) — never crash the debate.
+> 4. Citation hallucination defence is layered: fixed attribution templates per `source_kind` (LLM never names outlets) + Phase-21 deterministic citation linter.
 
 ---
 
@@ -152,6 +135,8 @@ short LLM pass that emits a **structured stance brief**: what the agent
 is being asked to defend, what its core claims are, and what counter-
 claims to expect. This is the input every later research stage consumes.
 Directly fixes the topic-mismatch root cause from §1 of the post-mortem.
+
+> **Design contract:** [docs/research/agentic_research.md §2.1](docs/research/agentic_research.md) fixes the prompt shape, strict JSON schema, failure mode, and hard caps for this stage. Implementation MUST match §2.1 verbatim or update the doc first.
 
 **Planned deliverables**
 
@@ -177,6 +162,8 @@ Directly fixes the topic-mismatch root cause from §1 of the post-mortem.
 planner with a stance-aware version that produces queries grounded in
 the `StanceBrief` from Phase 18. Targets the offender-empty asymmetry
 in Issue B of the post-mortem.
+
+> **Design contract:** [docs/research/agentic_research.md §2.2](docs/research/agentic_research.md) fixes the planner prompt, `<PLAN>` JSON schema, the Jaccard-≥0.6 diversity rule, and the 3-query fallback (topic / thesis / entity+thesis).
 
 **Planned deliverables**
 
@@ -204,6 +191,8 @@ the current 3-tag (`supports`/`contradicts`/`irrelevant`) summariser
 with a stance-aware filter that defaults to discard when uncertain.
 Targets Issue C in the post-mortem (off-topic zhihu hits being kept).
 
+> **Design contract:** [docs/research/agentic_research.md §2.3](docs/research/agentic_research.md) fixes the `<RESULT>`-delimiter injection guard, the keep-requires-`supports_claim` rule, `temperature=0.0` gating, and the deterministic source-kind URL heuristic.
+
 **Planned deliverables**
 
 | Item | Detail |
@@ -229,6 +218,8 @@ the agent's `## Knowledge` section as **attributed, source-typed
 bullets**. Each bullet renders with a natural-language attribution
 prefix the speaking agent can quote verbatim — "On Reddit, …",
 "According to *Nature* (2024), …", "In the *Wall Street Journal*, …".
+
+> **Design contract:** [docs/research/agentic_research.md §2.4](docs/research/agentic_research.md) fixes the `<KNOWLEDGE>` JSON schema, the fixed attribution templates per `source_kind` (LLM never invents outlet names), and the deterministic citation linter that rejects any quoted phrase absent from the source snippet (§4 risk #1).
 
 **Planned deliverables**
 
