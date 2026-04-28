@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from config import ConfigError, Settings, load_settings
+from auto_debate.config import ConfigError, Settings, load_settings
 
 # Every test runs with a clean slate. We monkeypatch each env var to None
 # (delenv) so neither the developer's real environment nor a stray .env

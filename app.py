@@ -18,12 +18,12 @@ from typing import Any, cast
 
 import streamlit as st
 
-from config import ConfigError, Settings, configure_logging, load_settings
-from engine import DebateEngine
-from judge import Judge, JudgeReport, render_report_markdown, save_report
-from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
-from memory import AgentMemory, MemoryStore
-from prompts import (
+from auto_debate.config import ConfigError, Settings, configure_logging, load_settings
+from auto_debate.engine import DebateEngine
+from auto_debate.judge import Judge, JudgeReport, render_report_markdown, save_report
+from auto_debate.llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
+from auto_debate.memory import AgentMemory, MemoryStore
+from auto_debate.prompts import (
     DEFAULT_BEHAVIOR_NAME,
     DEFAULT_PERSONA_NAME,
     NEUTRAL_PERSONA,
@@ -35,8 +35,8 @@ from prompts import (
     load_persona,
     preset_by_name,
 )
-from reflection import Reflector
-from research import (
+from auto_debate.reflection import Reflector
+from auto_debate.research import (
     DuckDuckGoAdapter,
     OfflineFixtureAdapter,
     Researcher,
@@ -544,7 +544,7 @@ def _transcript_markdown(*, include_quality_metrics: bool = False) -> str:
         lines.append("")
     body = "\n".join(lines).rstrip() + "\n"
     if include_quality_metrics:
-        from quality import (
+        from auto_debate.quality import (
             QualityLabel,
             TurnMetrics,
             render_metrics_table,

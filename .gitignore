@@ -25,6 +25,9 @@ __pycache__/
 *.log
 logs/
 
+# Per-run debate artefacts (transcript, memory, report — local only)
+runs/
+
 # OS / editors
 .DS_Store
 Thumbs.db

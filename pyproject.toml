@@ -42,7 +42,7 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["config.py", "prompts", "memory.py", "research.py", "reflection.py", "llm.py", "engine.py", "quality.py", "judge.py"]
+files = ["auto_debate"]
 # Streamlit and ollama don't ship strict-friendly stubs.
 [[tool.mypy.overrides]]
 module = ["ollama", "ollama.*", "dotenv", "dotenv.*", "duckduckgo_search", "duckduckgo_search.*"]

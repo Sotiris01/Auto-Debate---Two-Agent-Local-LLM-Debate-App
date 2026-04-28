@@ -36,7 +36,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
-from memory import AgentId, AgentMemory, render_prompt_block
+from auto_debate.memory import AgentId, AgentMemory, render_prompt_block
 
 __all__ = [
     "REFLECTOR_SYSTEM_PROMPT",

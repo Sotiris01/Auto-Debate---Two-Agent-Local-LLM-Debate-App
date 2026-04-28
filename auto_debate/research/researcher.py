@@ -36,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 
-from memory import AgentId, AgentMemory, MemoryStore
+from auto_debate.memory import AgentId, AgentMemory, MemoryStore
 
 __all__ = [
     "DuckDuckGoAdapter",

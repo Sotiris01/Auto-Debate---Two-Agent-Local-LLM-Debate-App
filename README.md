@@ -79,18 +79,27 @@ engine → app**, each one fully tested before the next is built.
 
 ## Project layout
 
-| File                    | Role                                              |
-| ----------------------- | ------------------------------------------------- |
-| `config.py`             | Typed settings loader (env / `.env`) + logging.   |
-| `prompts.py`            | Role system prompts and topic sanitization.       |
-| `llm.py`                | Thin Ollama client wrapper (mockable).            |
-| `engine.py`             | Pure debate orchestration, no UI.                 |
-| `app.py`                | Streamlit UI.                                     |
-| `run.ps1`               | Windows launcher (checks + Streamlit).            |
-| `scripts/ci.ps1`        | Lint + format + mypy + pytest, one command.       |
-| `scripts/bench.py`      | Performance sanity benchmark.                     |
-| `scripts/dry_run.py`    | Engine-only CLI debate (no Streamlit).            |
-| `scripts/check_*.py`    | System / Ollama readiness probes.                 |
+> **Phase 16 (v0.3 track):** Source modules live under the
+> `auto_debate/` package. The repository root keeps only `app.py` (the
+> Streamlit entry point) and tooling.
+
+| Path                              | Role                                              |
+| --------------------------------- | ------------------------------------------------- |
+| `app.py`                          | Streamlit UI (entry point).                       |
+| `auto_debate/config.py`           | Typed settings loader (env / `.env`) + logging.   |
+| `auto_debate/prompts/`            | Role system prompts, persona/behavior library.    |
+| `auto_debate/llm.py`              | Thin Ollama client wrapper (mockable).            |
+| `auto_debate/engine.py`           | Pure debate orchestration, no UI.                 |
+| `auto_debate/memory.py`           | Per-agent memory store.                           |
+| `auto_debate/reflection.py`       | Pre-turn reflection / memory updates.             |
+| `auto_debate/quality.py`          | n-gram novelty / TF-IDF adherence / loop detect.  |
+| `auto_debate/judge.py`            | 9-dimension judge / evaluator.                    |
+| `auto_debate/research/`           | Pre-debate web research (Phase 11 + v0.3 stubs).  |
+| `run.ps1`                         | Windows launcher (checks + Streamlit).            |
+| `scripts/ci.ps1`                  | Lint + format + mypy + pytest, one command.       |
+| `scripts/bench.py`                | Performance sanity benchmark.                     |
+| `scripts/dry_run.py`              | Engine-only CLI debate (no Streamlit).            |
+| `scripts/check_*.py`              | System / Ollama readiness probes.                 |
 
 See [PROJECT.md §5](PROJECT.md) for the canonical file tree.
 

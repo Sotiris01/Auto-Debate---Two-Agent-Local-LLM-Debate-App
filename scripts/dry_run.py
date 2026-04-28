@@ -20,9 +20,9 @@ from pathlib import Path
 # Allow `python scripts/dry_run.py "..."` (no -m) to also work.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from config import load_settings
-from engine import DebateEngine
-from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
+from auto_debate.config import load_settings
+from auto_debate.engine import DebateEngine
+from auto_debate.llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
 
 
 def main(argv: list[str] | None = None) -> int:

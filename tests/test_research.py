@@ -10,12 +10,14 @@ from typing import Any
 
 import pytest
 
-from memory import MemoryStore
-from research import (
+from auto_debate.memory import MemoryStore
+from auto_debate.research import (
     OfflineFixtureAdapter,
     Researcher,
     ResearchLimits,
     SearchResult,
+)
+from auto_debate.research.researcher import (
     _parse_query_plan,
     _parse_summary,
     _SearchCache,
@@ -219,7 +221,7 @@ def test_researcher_dedupes_existing_entries(tmp_path: Path) -> None:
     adapter = OfflineFixtureAdapter(fixture=fixture)
     # Pre-seed memory with what would be the first entry.
     store = MemoryStore(root=tmp_path)
-    from memory import AgentMemory
+    from auto_debate.memory import AgentMemory
 
     seeded = AgentMemory(
         agent_id="offender",
@@ -280,7 +282,7 @@ def test_researcher_respects_wall_clock_budget(
     # Make monotonic jump past the deadline immediately.
     fake_time = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0, 1000.0, 1000.0])
     monkeypatch.setattr(
-        "research.time.monotonic",
+        "auto_debate.research.researcher.time.monotonic",
         lambda: next(fake_time, 1000.0),
     )
     researcher = Researcher(

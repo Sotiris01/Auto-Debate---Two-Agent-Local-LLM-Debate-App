@@ -17,9 +17,9 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
-from config import Settings
-from memory import AgentId, AgentMemory, MemoryStore, MemoryStoreError
-from prompts import (
+from auto_debate.config import Settings
+from auto_debate.memory import AgentId, AgentMemory, MemoryStore, MemoryStoreError
+from auto_debate.prompts import (
     CLOSING_BEHAVIOR,
     DEFENDER_ROLE,
     NEUTRAL_PERSONA,
@@ -32,10 +32,10 @@ from prompts import (
     Role,
     RoleFragment,
 )
-from reflection import MemoryUpdate, Reflector, apply_update
+from auto_debate.reflection import MemoryUpdate, Reflector, apply_update
 
 if TYPE_CHECKING:  # pragma: no cover — type-only import
-    from quality import TurnMetrics
+    from auto_debate.quality import TurnMetrics
 
 __all__ = [
     "DebateEngine",
@@ -383,7 +383,7 @@ class DebateEngine:
             lines.append("")
         body = "\n".join(lines).rstrip() + "\n"
         if include_quality_metrics and self._turns:
-            from quality import render_metrics_table
+            from auto_debate.quality import render_metrics_table
 
             metrics = self.compute_quality_metrics()
             table = render_metrics_table(metrics)
@@ -399,7 +399,7 @@ class DebateEngine:
         export. Imports lazily so ``engine`` doesn't pay for ``quality``
         at module-load time when callers don't need metrics.
         """
-        from quality import compute_turn_metrics
+        from auto_debate.quality import compute_turn_metrics
 
         contents = [t.content for t in self._turns]
         return [
@@ -476,7 +476,7 @@ class DebateEngine:
         self._refresh_system_prompt(speaker, behavior)
 
         request = self._build_request_messages(speaker)
-        from llm import chat_options  # local import to keep engine import-light
+        from auto_debate.llm import chat_options  # local import to keep engine import-light
 
         options = chat_options(self.settings)
 

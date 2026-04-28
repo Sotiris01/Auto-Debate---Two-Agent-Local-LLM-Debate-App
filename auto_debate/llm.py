@@ -17,7 +17,7 @@ from typing import Any
 
 import ollama
 
-from config import Settings
+from auto_debate.config import Settings
 
 __all__ = [
     "ModelNotFoundError",
