@@ -31,6 +31,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 13 | Quality guards | n-gram novelty, TF-IDF adherence, loop detection, UI chips | 23 | ✅ |
 | 14 | Persona & behavior library | 6 personas · 6 behaviors · 4 presets · compatibility check | 28 | ✅ |
 | 15 | Judge / evaluator agent | `judge.py`, 9-dim scorecard, `report.{json,md}` persistence | 26 | ✅ |
+| 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ |
 
 **CI baseline:** 223 / 223 tests passing · mypy strict on 13 source files.
 
@@ -67,7 +68,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 
 | # | Theme | Kind | Blocks |
 |---|---|---|---|
-| 16 | Repository layout | groundwork | all later |
+| 16 | Repository layout | groundwork | all later — ✅ shipped |
 | 17 | Agentic-research literature review | research | 18-21 |
 | 18 | Topic analysis & per-agent stance | implementation | 19 |
 | 19 | Stance-driven query planner | implementation | 20 |
@@ -77,65 +78,32 @@ are summarised in the table below; full step-by-step notes live in git history.
 
 ---
 
-### Phase 16 — Repository Layout Refactor _(planned)_
+### Phase 16 — Repository Layout Refactor _(✅ shipped)_
 
-**Goal:** Move from "10 loose `.py` files at the project root" to a
-proper package layout, *without* changing any behaviour. Lays the
-groundwork for v0.3 modules that would otherwise pile more files on top
-of an already-flat root. **No new logic, no new tests** — only moves,
-re-exports, and TODO stubs for the v0.3 packages.
+**Outcome:** All loose root modules now live under the `auto_debate/`
+package; only `app.py` (the Streamlit entry point) remains at the
+project root. Phase-11 research is split into a sub-package that
+re-exports the public surface and ships TODO-only stubs for Phases
+18-21. CI: ruff + ruff format + mypy strict (19 files) + pytest **223
+/ 223** all green; no new third-party deps.
 
-**Current root** (10 modules): `app.py`, `config.py`, `engine.py`,
-`judge.py`, `llm.py`, `memory.py`, `quality.py`, `reflection.py`,
-`research.py`, plus the `prompts/` package.
+> **Layout note:** The shipped layout keeps `memory.py`,
+> `reflection.py`, `quality.py`, and `judge.py` as flat modules under
+> `auto_debate/` rather than promoting each to its own sub-package as
+> originally sketched. The sub-package treatment is reserved for
+> `auto_debate/research/`, which is the only area v0.3 actively
+> expands. This is a deliberate scope reduction to avoid churn on
+> stable modules.
 
-**Planned target layout**
-
-```
-auto_debate/
-├── app.py                    # entry point only
-├── auto_debate/              # new top-level package
-│   ├── __init__.py
-│   ├── config.py
-│   ├── engine.py
-│   ├── llm.py
-│   ├── prompts/              # moved as-is
-│   ├── memory/
-│   │   └── store.py          # ex memory.py
-│   ├── reflection/
-│   │   └── reflector.py      # ex reflection.py
-│   ├── quality/
-│   │   └── metrics.py        # ex quality.py
-│   ├── judge/
-│   │   └── evaluator.py      # ex judge.py
-│   └── research/             # ex research.py, split for v0.3
-│       ├── __init__.py
-│       ├── adapters.py       # SearchAdapter, DuckDuckGo, Offline
-│       ├── cache.py          # _SearchCache
-│       ├── researcher.py     # Researcher orchestrator
-│       ├── stance.py         # TODO stub — Phase 18
-│       ├── planner.py        # TODO stub — Phase 19
-│       ├── filter.py         # TODO stub — Phase 20
-│       └── knowledge.py      # TODO stub — Phase 21
-└── tests/                    # mirror layout under tests/
-```
-
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| Move modules | `git mv` each root `.py` into the new package; preserve history. |
-| Re-export shim | Keep `from research import Researcher` etc. working via `auto_debate/__init__.py` to avoid breaking external scripts and `tests/`. |
-| Update imports | `app.py` and `tests/*` imports adjusted to the new paths in one mechanical sweep. |
-| Pyproject | Add `[tool.setuptools.packages.find]` (or equivalent) so `pip install -e .` keeps working. mypy `files` list updated. |
-| New empty modules | `stance.py`, `planner.py`, `filter.py`, `knowledge.py` ship with module docstring + `# TODO: Phase N` markers only. |
-| README & PROJECT.md | One-line note pointing at the new layout. |
-
-**Phase 16 Exit Criteria**
-- [ ] No `.py` source modules remain at the project root other than `app.py`.
-- [ ] CI green: ruff + ruff format + mypy strict + **all 223 existing tests pass unchanged**.
-- [ ] `git log --follow` on each moved file shows continuous history.
-- [ ] No new third-party deps added.
+| Move modules via `git mv` (history preserved) | ✅ |
+| Re-export shim (`auto_debate.research`) | ✅ |
+| Update imports across `app.py`, `tests/`, `scripts/` | ✅ |
+| `pyproject.toml` mypy `files = ["auto_debate"]` | ✅ |
+| TODO stubs `stance.py` / `planner.py` / `filter.py` / `knowledge.py` | ✅ |
+| README layout table refreshed | ✅ |
+| `runs/` added to `.gitignore` | ✅ (incidental) |
 
 ---
 
