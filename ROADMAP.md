@@ -35,7 +35,8 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 17 | Agentic-research literature review | `docs/research/agentic_research.md` design doc + Mermaid pipeline diagram + risk register | 223 | ✅ |
 | 18 | Topic analysis & per-agent stance | `StanceBrief` + `analyse_topic` + `AgentMemory.stance` + `<MEMORY>` rendering | 242 | ✅ |
 | 19 | Stance-driven query planner | `QueryPlan` + `plan_queries` + Jaccard dedup + `runs/.../<agent>.plan.json` | 261 | ✅ |
-**CI baseline:** 261 / 261 tests passing · mypy strict on 19 source files.
+| 20 | Per-result favourability filter | `FilteredHit` + `filter_result` + URL source-kind heuristic + `runs/.../<agent>.{hits,drops}.json` | 297 | ✅ |
+**CI baseline:** 297 / 297 tests passing · mypy strict on 19 source files.
 
 ---
 
@@ -74,7 +75,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 17 | Agentic-research literature review | research | 18-21 — ✅ shipped |
 | 18 | Topic analysis & per-agent stance | implementation | 19 — ✅ shipped |
 | 19 | Stance-driven query planner | implementation | 20 — ✅ shipped |
-| 20 | Per-result favourability filter | implementation | 21 |
+| 20 | Per-result favourability filter | implementation | 21 — ✅ shipped |
 | 21 | Structured, attributed Knowledge synthesis | implementation | — |
 | 22 | Run metadata & transcript auto-save | polish | — |
 
@@ -164,31 +165,20 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 20 — Per-Result Favourability Filter _(planned)_
+### Phase 20 — Per-Result Favourability Filter _(✅ shipped)_
 
-**Goal:** After each search returns hits, the agent **keeps only what
-supports its stance** and tags everything else for discard. Replaces
-the current 3-tag (`supports`/`contradicts`/`irrelevant`) summariser
-with a stance-aware filter that defaults to discard when uncertain.
-Targets Issue C in the post-mortem (off-topic zhihu hits being kept).
+**Outcome:** When `stance_analysis_enabled` is on and a `StanceBrief` was produced, every search hit is now run through `filter_result(client, brief, query, result)` before reaching the legacy summariser. The filter is one LLM call per hit (`temperature=0.0`, `num_predict=120`) gated by `<FILTER>{...}</FILTER>` strict-JSON; the result snippet is rendered inside an explicit `<RESULT>` block and the system prompt instructs the model to ignore any instructions that appear there. A `keep` verdict is accepted **only** when the model returns a valid `supports_claim` index back into the brief; missing / out-of-range indices, malformed JSON, and LLM exceptions all coerce to `drop` with a structured `reason` (`malformed-filter-output` / `filter-llm-error`). Source-kind classification is a separate deterministic regex over the URL host (`paper|news|forum|wiki|blog|other`) so it cannot inflate the LLM budget. Per-agent kept and dropped hits are persisted to `runs/<run_id>/research/<agent>.hits.json` and `<agent>.drops.json` for audit. The legacy 3-tag summariser path remains as a safety net for the no-stance branch. CI: ruff + ruff format + mypy strict (19 files) + pytest **297 / 297** all green; no new third-party deps.
 
-> **Design contract:** [docs/research/agentic_research.md §2.3](docs/research/agentic_research.md) fixes the `<RESULT>`-delimiter injection guard, the keep-requires-`supports_claim` rule, `temperature=0.0` gating, and the deterministic source-kind URL heuristic.
-
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| `auto_debate/research/filter.py` | New `FilteredHit` dataclass: `result: SearchResult`, `verdict: Literal["keep","drop"]`, `reason: str`, `supports_claim: int \| None` (back-ref to key_claim index), `confidence: float`. |
-| `filter_result(client, brief, query, result) -> FilteredHit` | One LLM call per hit; strict JSON. `keep` requires (a) the snippet directly mentions an entity from the brief AND (b) the model can name which claim it supports. |
-| Anti-injection guard | The result snippet is rendered inside a clearly-delimited `<RESULT>` block in the prompt; the filter is told to ignore any instructions inside it. |
-| Source-kind classifier | Cheap heuristic on the URL → `{paper, news, forum, wiki, blog, other}`; persisted on the `FilteredHit`. |
-| Persistence | Per-agent `runs/<run_id>/research/<agent>.hits.json` records every kept hit + reason; dropped hits go to `<agent>.drops.json` for audit. |
-| Tests | Off-topic snippet → `drop`, on-topic snippet → `keep`, prompt-injection attempt is logged and dropped, source-kind heuristic, persistence. |
-
-**Phase 20 Exit Criteria**
-- [ ] On the post-mortem topic, the zhihu "consumer vs customer" snippets are reproducibly classified `drop` (regression test).
-- [ ] Every kept hit has a non-`None` `supports_claim` referencing a brief from Phase 18.
-- [ ] No prompt injection in a snippet alters the agent's stance (covered by an injection-corpus test).
+| `auto_debate/research/filter.py` — `FilteredHit` + `FILTER_SYSTEM_PROMPT` + `filter_result` + `classify_source_kind` + `persist_filter_outcomes` | ✅ |
+| Strict `<FILTER>{...}</FILTER>` JSON parser with code-fence stripping and bare-object fallback | ✅ |
+| Anti-injection guard: snippet rendered inside `<RESULT>` block; system prompt tells model to ignore embedded instructions | ✅ |
+| `keep` requires non-null `supports_claim` in range; otherwise coerced to `drop` with `reason="malformed-filter-output"` | ✅ |
+| Deterministic URL → source-kind heuristic (paper / news / forum / wiki / blog / other); not an LLM call | ✅ |
+| `Researcher` runs the filter between search and summariser; persists `runs/<run_id>/research/<agent>.{hits,drops}.json` | ✅ |
+| Tests (`tests/test_filter.py` ×36) | ✅ |
+| Design contract `docs/research/agentic_research.md` §2.3 honoured verbatim | ✅ |
 
 ---
 
