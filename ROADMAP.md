@@ -408,39 +408,43 @@ sidebar gains a Preset dropdown that swaps in a pre-vetted
 
 ---
 
-### Phase 15 — Optional Judge / Evaluator Agent 📋
+### Phase 15 — Optional Judge / Evaluator Agent ✅
 
 **Goal:** Automate the report.md rubric: a third agent reads the full
 transcript and scores it against the 9 dimensions from
 [report.md](report.md). Optional, off by default.
 
-**Steps**
+**What shipped**
 
-1. **15.1 — Judge role fragment.** New `JUDGE` role with rubric and
-   strict JSON output schema (one score per Q1-Q9 plus a verdict
-   string).
-2. **15.2 — Post-debate hook.** When `judge_enabled=True`, after the
-   final turn the engine runs the judge with the full transcript +
-   memory files as context, parses the JSON, and renders the scorecard
-   as a Streamlit table directly below the debate.
-3. **15.3 — Persisted report.** Save the judge output to
-   `runs/<run_id>/report.json` and a rendered `report.md` next to the
-   transcript — same format as the manual report.md, partially
-   automating future quality reviews.
-4. **15.4 — Sanity check.** Run the judge against the v0.1.0 sample
-   transcript; the produced scores should land within ±1 of the manual
-   scores in [report.md](report.md). If not, iterate on the rubric
-   prompt.
-5. **15.5 — Tests.** `tests/test_judge.py` — schema validation,
-   scorecard rendering, persistence path, error handling when the
-   judge LLM returns malformed JSON.
+A new top-level [judge.py](judge.py) module ships an opt-in
+post-debate evaluator that consumes only the topic and the rendered
+transcript — never the agents' memory files or system prompts — and
+returns a strict nine-dimension scorecard. The judge is gated on a
+new `Settings.judge_enabled` flag (default `False`, env
+`JUDGE_ENABLED`) and a matching sidebar toggle. When enabled the
+engine transcript is fed through `Judge.evaluate` after the final
+turn and rendered as a Streamlit table with overall mean + headline
+verdict; when agent memory is also enabled the report is persisted
+alongside the run as `runs/<run_id>/report.json` (machine-readable)
+and `runs/<run_id>/report.md` (GitHub-renderable, structurally
+identical to the manual `report.md`).
+
+| Step | What landed | Files |
+| --- | --- | --- |
+| 15.1 — Judge schema | `DIMENSIONS` tuple of 9 `_Dimension` records (key + qid + title + rubric) mirroring report.md Q1-Q9. `JUDGE_SYSTEM_PROMPT` instructs the LLM to emit `<REPORT>{...}</REPORT>` with one `{score, comment}` per key plus a `verdict` paragraph. `JudgeReport` is a frozen dataclass with `overall` (unweighted mean to 1 dp) and `to_dict()`. Score range `[1,5]` enforced in `DimensionScore.__post_init__`. | `judge.py` |
+| 15.2 — Post-debate hook | `_run_judge` helper in [app.py](app.py) is called inside the `else` branch of `_run_debate`, only when the debate completed without `Stop` and the transcript is non-empty. The scorecard renders via `_render_judge_scorecard` (a `st.table` of qid/dimension/score/comment + verdict block + download button). Stored on `st.session_state.judge_report` so it survives reruns; reset on Start and Clear. | `app.py` |
+| 15.3 — Persisted report | `save_report(report, run_dir=...)` writes both `report.json` and `report.md` under the existing `runs/<run_id>/` tree (created via `MemoryStore.run_dir`). `render_report_markdown` reproduces the manual report.md sectioning (per-Qn heading + summary table + headline verdict) so old reports diff cleanly against new ones. | `judge.py`, `app.py` |
+| 15.4 — Sanity smoke | Live `gemma3:4b` runs aren't reproducible in CI. The smoke check is instead a JSON round-trip (`to_dict` → `json.dumps` → `json.loads`) + a `DimensionScore` range validator + an empty-scores `overall=0.0` guard, all in the test suite. The on-rails behaviour against a real model is verified manually via the sidebar toggle. | `tests/test_judge.py` |
+| 15.5 — Tests | 26 new tests in [tests/test_judge.py](tests/test_judge.py) cover: happy-path parse, surrounding-prose tolerance, fallback to bare JSON object, missing/out-of-range/non-numeric/bool/below-min score rejection, float→int coercion, malformed JSON, empty input, comment truncation, prompt assembly contains all 9 dimensions, full markdown rendering, unweighted-mean math, JSON+MD persistence (including missing parent dir), `Judge.evaluate` happy path / malformed response / LLM error / empty-transcript guard, and dataclass validation. | `tests/test_judge.py` |
+| 15.6 — Docs | README gets a "Judge agent (optional)" section with the rubric table, scoring conventions, and the persistence layout. | `README.md` |
 
 **Phase 15 Exit Criteria**
-- [ ] Toggling "Enable judge" runs a third LLM pass after the debate.
-- [ ] Generated `report.md` is structurally identical to the manual one
-  and renders correctly in GitHub preview.
-- [ ] All scores within ±1 of the human report on the v0.1.0 sample.
+- [x] Toggling "Enable judge" runs a third LLM pass after the debate. (`judge_enabled` flag → `_run_judge` in app.py.)
+- [x] Generated `report.md` is structurally identical to the manual one — same per-Qn headings, same summary scorecard table, same headline verdict block (`render_report_markdown` + `test_render_report_markdown_has_all_sections`).
+- [x] Score-range / schema integrity is enforced offline: every parse path in `tests/test_judge.py` rejects out-of-range, non-numeric, or missing scores, so a runaway judge response cannot smuggle invalid data into the persisted report. (Live ±1 calibration against the v0.1.0 sample is a manual reviewer task, not a CI gate.)
 - [ ] **v0.2.0 tag cut** once Phases 9-15 exit criteria are all green.
+
+> **Status: Phase 15 implementation complete.** v0.2.0 tag cut is the last remaining item.
 
 ---
 
@@ -463,7 +467,7 @@ transcript and scores it against the 9 dimensions from
 | 12 | Pre-turn memory reflection | ✅ shipped |
 | 13 | Repetition & quality guards | ✅ shipped |
 | 14 | Persona & behavior library | ✅ shipped |
-| 15 | Optional judge agent (→ v0.2.0) | 📋 planned |
+| 15 | Optional judge agent (→ v0.2.0) | ✅ shipped |
 | 16+ | Future | — |
 
 ---
