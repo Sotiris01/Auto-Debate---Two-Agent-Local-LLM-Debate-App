@@ -257,6 +257,19 @@ with st.sidebar:
         ),
     )
 
+    stance_analysis_enabled = st.toggle(
+        "Stance analysis",
+        value=bool(base_settings.stance_analysis_enabled),
+        disabled=st.session_state.running or not web_research_enabled,
+        help=(
+            "Phase 18: before any search runs, each agent runs one short "
+            "LLM pass that produces a structured stance brief (thesis, "
+            "key claims, expected counterclaims, entities). The brief is "
+            "rendered into the agent's `## Stance` memory section. "
+            "Requires pre-debate web research to be enabled."
+        ),
+    )
+
     reflection_enabled = st.toggle(
         "Pre-turn reflection",
         value=bool(memory_enabled),
@@ -328,6 +341,9 @@ def _runtime_settings() -> Settings:
         web_search_adapter=str(web_search_adapter),
         closing_round_enabled=bool(closing_round_enabled),
         judge_enabled=bool(judge_enabled),
+        stance_analysis_enabled=bool(
+            memory_enabled and web_research_enabled and stance_analysis_enabled,
+        ),
     )
 
 
@@ -481,6 +497,7 @@ def _render_memory_section(memory: AgentMemory) -> str:
             parts.append("_(empty)_")
         parts.append("")
 
+    _block("Stance", memory.stance)
     _block("Knowledge", memory.knowledge, linkify=True)
     _block("Observations", memory.observations)
     _block("Strategy", memory.strategy)
@@ -691,6 +708,8 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                 adapter=adapter,
                 memory_store=memory_store,
                 run_id=run_id,
+                stance_enabled=settings.stance_analysis_enabled,
+                model=settings.model_name,
             )
             for agent_id in ("offender", "defender"):
                 with st.spinner(

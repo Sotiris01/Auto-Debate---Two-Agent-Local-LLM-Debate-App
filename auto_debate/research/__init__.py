@@ -38,8 +38,15 @@ from auto_debate.research.researcher import (
     SearchAdapter,
     SearchResult,
 )
+from auto_debate.research.stance import (
+    STANCE_SYSTEM_PROMPT,
+    StanceBrief,
+    analyse_topic,
+    render_stance_lines,
+)
 
 __all__ = [
+    "STANCE_SYSTEM_PROMPT",
     "DuckDuckGoAdapter",
     "OfflineFixtureAdapter",
     "ResearchAdapterError",
@@ -47,4 +54,7 @@ __all__ = [
     "Researcher",
     "SearchAdapter",
     "SearchResult",
+    "StanceBrief",
+    "analyse_topic",
+    "render_stance_lines",
 ]

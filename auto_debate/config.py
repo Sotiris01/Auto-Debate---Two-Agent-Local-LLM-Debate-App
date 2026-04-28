@@ -45,6 +45,7 @@ _DEFAULT_WEB_SEARCH_ADAPTER = "offline"
 _VALID_WEB_SEARCH_ADAPTERS = ("offline", "duckduckgo")
 _DEFAULT_CLOSING_ROUND_ENABLED = False
 _DEFAULT_JUDGE_ENABLED = False
+_DEFAULT_STANCE_ANALYSIS_ENABLED = False
 
 
 class ConfigError(ValueError):
@@ -71,6 +72,7 @@ class Settings:
     web_search_adapter: str = _DEFAULT_WEB_SEARCH_ADAPTER
     closing_round_enabled: bool = _DEFAULT_CLOSING_ROUND_ENABLED
     judge_enabled: bool = _DEFAULT_JUDGE_ENABLED
+    stance_analysis_enabled: bool = _DEFAULT_STANCE_ANALYSIS_ENABLED
 
 
 # --- helpers ----------------------------------------------------------------
@@ -165,6 +167,11 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         _DEFAULT_JUDGE_ENABLED,
         problems,
     )
+    stance_analysis_enabled = _get_bool(
+        "STANCE_ANALYSIS_ENABLED",
+        _DEFAULT_STANCE_ANALYSIS_ENABLED,
+        problems,
+    )
 
     if not ollama_host.startswith(("http://", "https://")):
         problems.append(
@@ -201,6 +208,7 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         web_search_adapter=web_search_adapter,
         closing_round_enabled=closing_round_enabled,
         judge_enabled=judge_enabled,
+        stance_analysis_enabled=stance_analysis_enabled,
     )
 
 
