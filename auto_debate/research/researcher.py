@@ -42,6 +42,10 @@ from auto_debate.research.filter import (
     filter_result,
     persist_filter_outcomes,
 )
+from auto_debate.research.knowledge import (
+    render_knowledge_lines,
+    synthesise_knowledge,
+)
 from auto_debate.research.planner import (
     QueryPlan,
     plan_queries,
@@ -504,7 +508,11 @@ class Researcher:
                             result.url,
                             hit.reason,
                         )
-                        continue
+                    # Phase 21: when the stance pipeline is active we
+                    # defer Knowledge composition to a single
+                    # ``synthesise_knowledge`` call after the search
+                    # loop. The per-hit summariser is bypassed.
+                    continue
                 summary = self._summarise(topic, agent_id, result)
                 if summary is None:
                     continue
@@ -531,6 +539,49 @@ class Researcher:
                 len(filter_outcomes),
                 agent_id,
             )
+
+        # Phase 21: synthesise the Knowledge section in one batched
+        # LLM call from the kept FilteredHits. Replaces the per-hit
+        # summariser when the stance pipeline is active. When zero
+        # entries survive, the agent's Knowledge section is reset to
+        # the deterministic fallback sentinel so the speak prompt
+        # never sees stale legacy bullets.
+        knowledge_lines: tuple[str, ...] | None = None
+        if filter_active and brief is not None:
+            kept_hits = [h for h in filter_outcomes if h.verdict == "keep"]
+            entries = synthesise_knowledge(
+                self.llm_client,
+                brief,
+                kept_hits,
+                model=self.model,
+                run_root=self.memory_store.root,
+                run_id=self.run_id,
+            )
+            knowledge_lines = render_knowledge_lines(entries)
+            _log.info(
+                "knowledge synthesis produced %d entries for agent=%s",
+                len(entries),
+                agent_id,
+            )
+
+        if knowledge_lines is not None:
+            # Phase 21 path: replace the Knowledge section wholesale
+            # with the freshly synthesised attributed bullets.
+            updated = AgentMemory(
+                agent_id=memory.agent_id,
+                knowledge=knowledge_lines,
+                observations=memory.observations,
+                strategy=memory.strategy,
+                stance=stance_lines,
+                turn_index=memory.turn_index,
+            )
+            self.memory_store.save(self.run_id, updated)
+            _log.info(
+                "research populated %d knowledge bullets for agent=%s",
+                len(knowledge_lines),
+                agent_id,
+            )
+            return updated
 
         if new_entries or stance_lines != memory.stance:
             updated = AgentMemory(

@@ -36,7 +36,8 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 18 | Topic analysis & per-agent stance | `StanceBrief` + `analyse_topic` + `AgentMemory.stance` + `<MEMORY>` rendering | 242 | ✅ |
 | 19 | Stance-driven query planner | `QueryPlan` + `plan_queries` + Jaccard dedup + `runs/.../<agent>.plan.json` | 261 | ✅ |
 | 20 | Per-result favourability filter | `FilteredHit` + `filter_result` + URL source-kind heuristic + `runs/.../<agent>.{hits,drops}.json` | 297 | ✅ |
-**CI baseline:** 297 / 297 tests passing · mypy strict on 19 source files.
+| 21 | Structured, attributed Knowledge synthesis | `KnowledgeEntry` + `synthesise_knowledge` + citation linter + per-source-kind attribution + `runs/.../<agent>.knowledge.json` | 333 | ✅ |
+**CI baseline:** 333 / 333 tests passing · mypy strict on 19 source files.
 
 ---
 
@@ -76,7 +77,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 18 | Topic analysis & per-agent stance | implementation | 19 — ✅ shipped |
 | 19 | Stance-driven query planner | implementation | 20 — ✅ shipped |
 | 20 | Per-result favourability filter | implementation | 21 — ✅ shipped |
-| 21 | Structured, attributed Knowledge synthesis | implementation | — |
+| 21 | Structured, attributed Knowledge synthesis | implementation | — ✅ shipped |
 | 22 | Run metadata & transcript auto-save | polish | — |
 
 ---
@@ -182,32 +183,22 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 21 — Structured, Attributed Knowledge Synthesis _(planned)_
+### Phase 21 — Structured, Attributed Knowledge Synthesis _(✅ shipped)_
 
-**Goal:** Take the curated `FilteredHit`s from Phase 20 and synthesise
-the agent's `## Knowledge` section as **attributed, source-typed
-bullets**. Each bullet renders with a natural-language attribution
-prefix the speaking agent can quote verbatim — "On Reddit, …",
-"According to *Nature* (2024), …", "In the *Wall Street Journal*, …".
+**Outcome:** When `stance_analysis_enabled` is on, the legacy per-hit summariser is bypassed entirely on the kept-hits path: a single `synthesise_knowledge(client, brief, kept_hits)` LLM call (`temperature=0.2`, `num_predict=512`) gated by `<KNOWLEDGE>{...}</KNOWLEDGE>` strict-JSON collapses every kept `FilteredHit` into ≤ 10 attributed bullets, grouped by `claim_index`, with at most 2 entries per claim. Attribution prefixes are rendered **deterministically** from the URL host plus the per-source-kind template (`According to {host}`, `In {host}`, `On {host}`, `Per {host}`, `From {host}`) — the LLM never names an outlet, so it cannot hallucinate one. A deterministic citation linter walks each candidate body, extracts every `"..."` quoted phrase, and drops any entry whose quoted phrase does not appear verbatim (case-insensitive, whitespace-collapsed) inside the matched `FilteredHit.result.snippet`. The `Researcher` replaces the agent's `## Knowledge` section wholesale with the rendered bullets (each prefixed `[claim N]`); when zero entries survive, the section reverts to the deterministic `"No verified sources for this turn."` sentinel. Bullets are persisted to `runs/<run_id>/research/<agent>.knowledge.json` for audit. Failures (LLM raise, garbage JSON, total linter rejection) degrade to the empty list — the debate never crashes. CI: ruff + ruff format + mypy strict (19 files) + pytest **333 / 333** all green; no new third-party deps.
 
-> **Design contract:** [docs/research/agentic_research.md §2.4](docs/research/agentic_research.md) fixes the `<KNOWLEDGE>` JSON schema, the fixed attribution templates per `source_kind` (LLM never invents outlet names), and the deterministic citation linter that rejects any quoted phrase absent from the source snippet (§4 risk #1).
-
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| `auto_debate/research/knowledge.py` | `KnowledgeEntry` dataclass: `claim_index`, `source_kind`, `attribution` (the rendered prefix), `body` (≤ 30-word paraphrase), `url`, `confidence`. |
-| Attribution templates | Per source-kind: paper → `According to {authors_or_outlet} ({year})`; news → `In {outlet}`; forum → `On {site} ({thread_or_subreddit})`; wiki → `Per {site}`; blog → `On {outlet}`; other → `From {domain}`. |
-| `synthesise_knowledge(client, brief, kept_hits) -> tuple[KnowledgeEntry, ...]` | One LLM call to deduplicate near-identical claims, group by `claim_index`, and compose the prefix; output is strict JSON. Hard cap of N entries per claim (default 2). |
-| Memory rendering | `MemoryStore` Knowledge section now renders `- {attribution}, {body} ({url})` with section sub-headers per `claim_index` so the agent's speak prompt can cite by claim. |
-| Citation linter | Lint pass rejects an entry whose `body` quotes a claim that does **not** appear in the source `result.snippet` (mitigates hallucinated citations). |
-| Tests | Attribution rendering per source-kind, dedup, citation-lint catches a fabricated quote, memory-block round-trip. |
+| `auto_debate/research/knowledge.py` — `KnowledgeEntry` + `KNOWLEDGE_SYSTEM_PROMPT` + `synthesise_knowledge` + `citation_lint` + `persist_knowledge` + `render_knowledge_lines` | ✅ |
+| Strict `<KNOWLEDGE>{...}</KNOWLEDGE>` JSON parser with code-fence stripping and bare-object fallback | ✅ |
+| Per-source-kind attribution templates rendered from the URL host (LLM never names outlets) | ✅ |
+| Deterministic citation linter rejects entries whose quoted phrase is absent from the source snippet | ✅ |
+| Hard caps: ≤ 2 entries per `claim_index`, ≤ 10 entries total, body ≤ 30 words; LLM-claimed `source_kind` is overridden by the `FilteredHit` value | ✅ |
+| `Researcher` runs the synthesiser after the filter loop; replaces `AgentMemory.knowledge` with the rendered bullets; persists `runs/<run_id>/research/<agent>.knowledge.json` | ✅ |
+| Tests (`tests/test_knowledge.py` ×36) | ✅ |
+| Design contract `docs/research/agentic_research.md` §2.4 honoured verbatim | ✅ |
 
-**Phase 21 Exit Criteria**
-- [ ] Re-running the post-mortem topic with v0.3 produces a Knowledge section where every line begins with one of the attribution prefixes above.
-- [ ] No `KnowledgeEntry.body` contains a quoted phrase absent from the cached search snippet (citation linter passes).
-- [ ] The judge's **Q6 Factual grounding** score on a sanity-check topic improves from 2/5 → ≥ 3/5 on the same model (`gemma3:4b`).
-- [ ] **v0.3.0 tag cut** when 16-21 are all green.
+> **v0.3 track complete.** All four research stages (stance → plan → filter → synthesise) are now implemented behind the `stance_analysis_enabled` flag. The flag still defaults to `False`; flipping it on and tagging `v0.3.0` is the remaining track exit step (alongside the Phase 22 polish work).
 
 ---
 

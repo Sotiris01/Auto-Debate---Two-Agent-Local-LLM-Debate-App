@@ -36,6 +36,16 @@ from auto_debate.research.filter import (
     filter_result,
     persist_filter_outcomes,
 )
+from auto_debate.research.knowledge import (
+    FALLBACK_KNOWLEDGE_LINE,
+    KNOWLEDGE_SYSTEM_PROMPT,
+    KnowledgeEntry,
+    citation_lint,
+    format_knowledge_entry,
+    persist_knowledge,
+    render_knowledge_lines,
+    synthesise_knowledge,
+)
 from auto_debate.research.planner import (
     PLANNER_SYSTEM_PROMPT,
     PlannedQuery,
@@ -59,11 +69,14 @@ from auto_debate.research.stance import (
 )
 
 __all__ = [
+    "FALLBACK_KNOWLEDGE_LINE",
     "FILTER_SYSTEM_PROMPT",
+    "KNOWLEDGE_SYSTEM_PROMPT",
     "PLANNER_SYSTEM_PROMPT",
     "STANCE_SYSTEM_PROMPT",
     "DuckDuckGoAdapter",
     "FilteredHit",
+    "KnowledgeEntry",
     "OfflineFixtureAdapter",
     "PlannedQuery",
     "QueryPlan",
@@ -74,9 +87,14 @@ __all__ = [
     "SearchResult",
     "StanceBrief",
     "analyse_topic",
+    "citation_lint",
     "classify_source_kind",
     "filter_result",
+    "format_knowledge_entry",
     "persist_filter_outcomes",
+    "persist_knowledge",
     "plan_queries",
+    "render_knowledge_lines",
     "render_stance_lines",
+    "synthesise_knowledge",
 ]
