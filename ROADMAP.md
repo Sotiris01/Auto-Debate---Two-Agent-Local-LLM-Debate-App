@@ -371,43 +371,40 @@ streamed turns.
 
 ---
 
-### Phase 14 — Persona & Behavior Library 📋
+### Phase 14 — Persona & Behavior Library ✅
 
 **Goal:** Ship a real catalogue of swappable personalities and
 behaviors, validating that the Phase 9 composer scales beyond the
-default pair.
+default pair — and let each side of the debate run a different
+fragment pair.
 
-**Steps**
+**What shipped**
 
-1. **14.1 — Author 5+ personas.** YAML files under
-   `prompts/library/personas/`: `socratic.yaml`, `tabloid.yaml`,
-   `professor.yaml`, `politician.yaml`, `comedian.yaml`. Each ≤ 80
-   words.
-2. **14.2 — Author 4+ behaviors.** `prompts/library/behaviors/`:
-   `cite_evidence.yaml` (must reference at least one knowledge entry),
-   `steelman.yaml` (must restate opponent before rebutting),
-   `concise.yaml` (≤ 50 words/turn), `analytical.yaml` (numbered
-   bullets).
-3. **14.3 — Persona × persona compatibility check.** Optional
-   one-shot validator that warns if a persona/behavior combo is
-   contradictory (e.g. `concise` + `analytical_with_5_bullets`). Pure
-   heuristic, no LLM call.
-4. **14.4 — UI: persona presets.** Sidebar "Preset" dropdown with named
-   bundles (e.g. "Academic debate" = professor + steelman vs professor
-   + cite_evidence; "Tabloid showdown" = tabloid + concise vs
-   politician + concise). Custom = manual selection.
-5. **14.5 — Persona reproducibility tests.** For each persona, lock a
-   seeded run (`temperature=0`, fixed model, fixed topic) and snapshot
-   the first turn's first 200 chars; CI compares snapshots to detect
-   accidental persona drift after future prompt edits.
-6. **14.6 — Docs.** README "Personas" section with one-line description
-   per persona and a screenshot of the sidebar.
+The fragment registry that landed in Phase 9 always supported a
+catalogue, but only two personas (`neutral`, `professor`) and two
+behaviors (`standard`, `steelman`, plus the special `closing`) lived
+under `prompts/library/`. Phase 14 fills that catalogue out, adds a
+heuristic compatibility checker that runs before any LLM call, and
+teaches `DebateEngine` to wear a different mask per side. The
+sidebar gains a Preset dropdown that swaps in a pre-vetted
+(offender, defender) bundle without touching the underlying composer.
+
+| Step | What landed | Files |
+| --- | --- | --- |
+| 14.1 — Personas | 4 new personas (`socratic`, `tabloid`, `politician`, `comedian`) joining `neutral` + `professor` for a 6-strong catalogue. JSON, not YAML — kept the existing registry format for consistency. | `prompts/library/personas/*.json` |
+| 14.2 — Behaviors | 3 new behaviors (`cite_evidence`, `concise`, `analytical`) joining `standard`, `steelman`, `closing` for a 6-strong set. | `prompts/library/behaviors/*.json` |
+| 14.3 — Compatibility check | `check_compatibility()` is a pure heuristic with three pinned rules (`analytical` + `concise`, `cite_evidence` + `concise`, `closing` + `cite_evidence`); deduplicates symmetric warnings via `frozenset`. No registry I/O, no LLM call. | `prompts/presets.py`, `tests/test_persona_library.py` |
+| 14.4 — UI presets + per-agent overrides | `BUILTIN_PRESETS` exposes 4 bundles (Academic debate / Tabloid showdown / Socratic clinic / Comedy club). `DebateEngine` accepts optional `defender_persona` / `defender_behavior` and routes them through new `_persona_for(agent_id)` / `_behavior_for(agent_id)` helpers; `_behavior_for_turn` honours the same routing on non-closing rounds. The Streamlit sidebar gains a Preset selector and shows compatibility warnings inline. | `prompts/presets.py`, `engine.py`, `app.py` |
+| 14.5 — Drift snapshots | Live `gemma3:4b` runs aren't reproducible in CI, so the snapshot test pins the **composed system prompt** for each persona instead — same drift signal without a network dependency. 28 new persona/preset/integration tests in total. | `tests/test_persona_library.py` |
+| 14.6 — Docs | README gets a "Personas & behaviors" section with one-line descriptions per fragment, the JSON schema, and instructions for adding a new persona without touching code. | `README.md` |
 
 **Phase 14 Exit Criteria**
-- [ ] 5+ personas and 4+ behaviors loadable from the registry.
-- [ ] At least 3 named presets selectable in the UI.
-- [ ] Snapshot tests for every persona pass on `gemma3:4b`.
-- [ ] README documents how to add a new persona without touching code.
+- [x] 5+ personas and 4+ behaviors loadable from the registry. (6 of each.)
+- [x] At least 3 named presets selectable in the UI. (4 shipped.)
+- [x] Snapshot tests for every persona pass — composed-prompt snapshots stand in for live LLM runs and are CI-reproducible.
+- [x] README documents how to add a new persona without touching code.
+
+> **Status: Phase 14 complete.** Move to Phase 15.
 
 ---
 
@@ -465,7 +462,7 @@ transcript and scores it against the 9 dimensions from
 | 11 | Pre-debate web research | ✅ shipped |
 | 12 | Pre-turn memory reflection | ✅ shipped |
 | 13 | Repetition & quality guards | ✅ shipped |
-| 14 | Persona & behavior library | 📋 planned |
+| 14 | Persona & behavior library | ✅ shipped |
 | 15 | Optional judge agent (→ v0.2.0) | 📋 planned |
 | 16+ | Future | — |
 
