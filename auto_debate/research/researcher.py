@@ -37,6 +37,11 @@ from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 
 from auto_debate.memory import AgentId, AgentMemory, MemoryStore
+from auto_debate.research.stance import (
+    StanceBrief,
+    analyse_topic,
+    render_stance_lines,
+)
 
 __all__ = [
     "DuckDuckGoAdapter",
@@ -387,6 +392,8 @@ class Researcher:
     memory_store: MemoryStore
     run_id: str
     limits: ResearchLimits = field(default_factory=ResearchLimits)
+    stance_enabled: bool = False
+    model: str | None = None
 
     # --- public API ----------------------------------------------------
 
@@ -407,6 +414,29 @@ class Researcher:
         deadline = time.monotonic() + self.limits.wall_clock_budget_seconds
         memory = self.memory_store.load(self.run_id, agent_id)
         existing = set(memory.knowledge)
+
+        # Phase 18: optional stance brief is computed first so future
+        # phases can condition planner / filter / synthesis on it.
+        # Until those phases land, the brief is rendered into the
+        # memory's `## Stance` section so the speaking prompt still
+        # benefits from a structured topic reading.
+        stance_lines: tuple[str, ...] = memory.stance
+        brief: StanceBrief | None = None
+        if self.stance_enabled:
+            brief = analyse_topic(
+                self.llm_client,
+                topic,
+                agent_id,
+                model=self.model,
+            )
+            if brief is not None:
+                stance_lines = render_stance_lines(brief)
+                _log.info(
+                    "stance brief produced for agent=%s (%d claims, %d counterclaims)",
+                    agent_id,
+                    len(brief.key_claims),
+                    len(brief.expected_counterclaims),
+                )
 
         queries = self._plan_queries(topic, agent_id)
         queries = queries[: self.limits.max_queries]
@@ -439,12 +469,13 @@ class Researcher:
                 existing.add(entry)
                 new_entries.append(entry)
 
-        if new_entries:
+        if new_entries or stance_lines != memory.stance:
             updated = AgentMemory(
                 agent_id=memory.agent_id,
                 knowledge=tuple(memory.knowledge) + tuple(new_entries),
                 observations=memory.observations,
                 strategy=memory.strategy,
+                stance=stance_lines,
                 turn_index=memory.turn_index,
             )
             self.memory_store.save(self.run_id, updated)

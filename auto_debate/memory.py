@@ -42,6 +42,7 @@ _VALID_AGENT_IDS: Final[frozenset[str]] = frozenset({"offender", "defender"})
 _HEADER_KNOWLEDGE: Final[str] = "## Knowledge"
 _HEADER_OBSERVATIONS: Final[str] = "## Observations"
 _HEADER_STRATEGY: Final[str] = "## Strategy"
+_HEADER_STANCE: Final[str] = "## Stance"
 _HEADER_TURN: Final[str] = "<!-- turn:"
 _HEADER_TURN_RE: Final[re.Pattern[str]] = re.compile(r"^<!--\s*turn:\s*(\d+)\s*-->\s*$")
 
@@ -71,6 +72,7 @@ class AgentMemory:
     knowledge: tuple[str, ...] = ()
     observations: tuple[str, ...] = ()
     strategy: tuple[str, ...] = ()
+    stance: tuple[str, ...] = ()
     turn_index: int = 0
 
     def __post_init__(self) -> None:
@@ -86,7 +88,7 @@ class AgentMemory:
     @property
     def is_empty(self) -> bool:
         """True when no section carries any content."""
-        return not (self.knowledge or self.observations or self.strategy)
+        return not (self.knowledge or self.observations or self.strategy or self.stance)
 
     def with_turn_index(self, turn_index: int) -> AgentMemory:
         """Return a copy with ``turn_index`` updated."""
@@ -115,6 +117,7 @@ def _render_markdown(memory: AgentMemory) -> str:
     out.extend(_render_section(_HEADER_KNOWLEDGE, memory.knowledge))
     out.extend(_render_section(_HEADER_OBSERVATIONS, memory.observations))
     out.extend(_render_section(_HEADER_STRATEGY, memory.strategy))
+    out.extend(_render_section(_HEADER_STANCE, memory.stance))
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -130,6 +133,7 @@ def _parse_markdown(text: str, *, agent_id: AgentId) -> AgentMemory:
         _HEADER_KNOWLEDGE: [],
         _HEADER_OBSERVATIONS: [],
         _HEADER_STRATEGY: [],
+        _HEADER_STANCE: [],
     }
     current: str | None = None
 
@@ -163,6 +167,7 @@ def _parse_markdown(text: str, *, agent_id: AgentId) -> AgentMemory:
         knowledge=tuple(sections[_HEADER_KNOWLEDGE]),
         observations=tuple(sections[_HEADER_OBSERVATIONS]),
         strategy=tuple(sections[_HEADER_STRATEGY]),
+        stance=tuple(sections[_HEADER_STANCE]),
         turn_index=turn_index,
     )
 
@@ -218,14 +223,18 @@ def render_prompt_block(
     if max_chars <= 0:
         raise ValueError(f"max_chars must be > 0, got {max_chars!r}")
 
-    # Budget is split evenly across the three sections; each section's
+    # Budget is split evenly across the four sections; each section's
     # truncator drops oldest-first.
-    per_section = max_chars // 3
+    per_section = max_chars // 4
     knowledge = _truncate_section(memory.knowledge, per_section)
     observations = _truncate_section(memory.observations, per_section)
     strategy = _truncate_section(memory.strategy, per_section)
+    stance = _truncate_section(memory.stance, per_section)
 
     parts: list[str] = []
+    # Stance first — it anchors the agent's reading of the topic before
+    # the rest of the memory is consumed.
+    parts.extend(_render_prompt_section("Stance:", stance))
     parts.extend(_render_prompt_section("Knowledge:", knowledge))
     parts.extend(_render_prompt_section("Observations:", observations))
     parts.extend(_render_prompt_section("Strategy:", strategy))
@@ -297,12 +306,13 @@ class MemoryStore:
         except OSError as exc:
             raise MemoryStoreError(f"failed writing {path}: {exc}") from exc
         _log.debug(
-            "saved memory: run=%s agent=%s knowledge=%d observations=%d strategy=%d",
+            "saved memory: run=%s agent=%s knowledge=%d observations=%d strategy=%d stance=%d",
             run_id,
             memory.agent_id,
             len(memory.knowledge),
             len(memory.observations),
             len(memory.strategy),
+            len(memory.stance),
         )
         return path
 

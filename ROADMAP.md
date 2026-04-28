@@ -31,8 +31,10 @@ are summarised in the table below; full step-by-step notes live in git history.
 | 13 | Quality guards | n-gram novelty, TF-IDF adherence, loop detection, UI chips | 23 | ✅ |
 | 14 | Persona & behavior library | 6 personas · 6 behaviors · 4 presets · compatibility check | 28 | ✅ |
 | 15 | Judge / evaluator agent | `judge.py`, 9-dim scorecard, `report.{json,md}` persistence | 26 | ✅ |
-| 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ || 17 | Agentic-research literature review | `docs/research/agentic_research.md` design doc + Mermaid pipeline diagram + risk register | 223 | ✅ |
-**CI baseline:** 223 / 223 tests passing · mypy strict on 13 source files.
+| 16 | Repository layout refactor | `auto_debate/` package, v0.3 TODO stubs, no behaviour change | 223 | ✅ |
+| 17 | Agentic-research literature review | `docs/research/agentic_research.md` design doc + Mermaid pipeline diagram + risk register | 223 | ✅ |
+| 18 | Topic analysis & per-agent stance | `StanceBrief` + `analyse_topic` + `AgentMemory.stance` + `<MEMORY>` rendering | 242 | ✅ |
+**CI baseline:** 242 / 242 tests passing · mypy strict on 19 source files.
 
 ---
 
@@ -69,7 +71,7 @@ are summarised in the table below; full step-by-step notes live in git history.
 |---|---|---|---|
 | 16 | Repository layout | groundwork | all later — ✅ shipped |
 | 17 | Agentic-research literature review | research | 18-21 — ✅ shipped |
-| 18 | Topic analysis & per-agent stance | implementation | 19 |
+| 18 | Topic analysis & per-agent stance | implementation | 19 — ✅ shipped |
 | 19 | Stance-driven query planner | implementation | 20 |
 | 20 | Per-result favourability filter | implementation | 21 |
 | 21 | Structured, attributed Knowledge synthesis | implementation | — |
@@ -128,31 +130,19 @@ re-exports the public surface and ships TODO-only stubs for Phases
 
 ---
 
-### Phase 18 — Topic Analysis & Per-Agent Stance _(planned)_
+### Phase 18 — Topic Analysis & Per-Agent Stance _(✅ shipped)_
 
-**Goal:** Before any search runs, each agent reads the topic through a
-short LLM pass that emits a **structured stance brief**: what the agent
-is being asked to defend, what its core claims are, and what counter-
-claims to expect. This is the input every later research stage consumes.
-Directly fixes the topic-mismatch root cause from §1 of the post-mortem.
+**Outcome:** Each agent now reads the topic through one short LLM pass before any search runs. The pass produces a structured `StanceBrief` (thesis ≤ 30 words + 3-5 `key_claims` + 3-5 `expected_counterclaims` + 3-8 `entities`), persisted to memory's new `## Stance` section and rendered first in the `<MEMORY>` prompt block so the speaking prompt always sees the agent's own thesis. The stage is one LLM call (`temperature=0.2`, `num_predict=256`), gated by a `<STANCE>{...}</STANCE>` strict-JSON delimiter; parser/validation failures degrade gracefully (the legacy Phase-11 path still runs). Feature flag `stance_analysis_enabled` defaults `False` (off-by-default per the original exit criteria — Phase 19 will flip the default once stance-driven planning lands). CI: ruff + ruff format + mypy strict (19 files) + pytest **242 / 242** all green; no new third-party deps.
 
-> **Design contract:** [docs/research/agentic_research.md §2.1](docs/research/agentic_research.md) fixes the prompt shape, strict JSON schema, failure mode, and hard caps for this stage. Implementation MUST match §2.1 verbatim or update the doc first.
-
-**Planned deliverables**
-
-| Item | Detail |
+| Item | Status |
 |---|---|
-| `auto_debate/research/stance.py` | New `StanceBrief` frozen dataclass: `topic`, `agent_id`, `position` ("for"/"against"), `thesis` (≤ 30 words), `key_claims` (3-5 short strings), `expected_counterclaims` (3-5 strings), `entities` (named nouns/orgs to anchor searches). |
-| `STANCE_SYSTEM_PROMPT` | Strict-JSON system prompt; agent role + topic in; `<STANCE>{...}</STANCE>` block out. Hard cap on field lengths. |
-| `analyse_topic(client, topic, agent_id) -> StanceBrief \| None` | One LLM call, ~200 tokens, `temperature=0.2`. Returns `None` on parse failure (no crash). |
-| Engine wiring | `Researcher.populate_for_agent` calls `analyse_topic` first; brief is stored on memory's new `stance` slot **and** rendered into `<MEMORY>` so the speaking prompt sees the same thesis. |
-| UI surface | Memory expander gains a "Stance brief" section above Knowledge. |
-| Tests | Parser happy-path / malformed JSON / over-cap fields, end-to-end with offline fixture, `analyse_topic` failure is non-fatal. |
-
-**Phase 18 Exit Criteria**
-- [ ] On any debate run, both agents' memory files contain a `## Stance` section listing thesis + 3-5 key claims tied to the *actual* topic.
-- [ ] When the topic is ambiguous (e.g. the post-mortem's "Monster ... Red Bull"), each agent commits to one reading and the rest of the pipeline uses *that* reading.
-- [ ] Feature flag `stance_analysis_enabled`, default `True` once Phase 19 lands; Phase 18 alone keeps it off-by-default.
+| `auto_debate/research/stance.py` — `StanceBrief` + `STANCE_SYSTEM_PROMPT` + `analyse_topic` + `render_stance_lines` | ✅ |
+| `AgentMemory.stance` field + `## Stance` markdown round-trip + `<MEMORY>` rendering (stance first) | ✅ |
+| `Settings.stance_analysis_enabled` flag (env `STANCE_ANALYSIS_ENABLED`, default `False`) | ✅ |
+| `Researcher` wires the flag and calls `analyse_topic` before `_plan_queries`; failures non-fatal | ✅ |
+| Sidebar toggle (gated on memory + web-research) and "Stance" section in the memory expander | ✅ |
+| Tests (`tests/test_stance.py` ×17 + 2 new in `test_config.py`) | ✅ |
+| Design contract `docs/research/agentic_research.md` §2.1 honoured verbatim | ✅ |
 
 ---
 

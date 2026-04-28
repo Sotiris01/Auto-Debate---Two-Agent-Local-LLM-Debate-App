@@ -119,3 +119,14 @@ def test_dotenv_path_is_loaded(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Non
     s = load_settings(dotenv_path=env_file)
     assert s.model_name == "gemma3:12b"
     assert s.max_turns == 4
+
+
+def test_stance_analysis_defaults_off() -> None:
+    s = load_settings()
+    assert s.stance_analysis_enabled is False
+
+
+def test_stance_analysis_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("STANCE_ANALYSIS_ENABLED", "true")
+    s = load_settings()
+    assert s.stance_analysis_enabled is True
