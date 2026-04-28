@@ -29,6 +29,13 @@ sites only need to update the dotted import path::
 
 from __future__ import annotations
 
+from auto_debate.research.filter import (
+    FILTER_SYSTEM_PROMPT,
+    FilteredHit,
+    classify_source_kind,
+    filter_result,
+    persist_filter_outcomes,
+)
 from auto_debate.research.planner import (
     PLANNER_SYSTEM_PROMPT,
     PlannedQuery,
@@ -52,9 +59,11 @@ from auto_debate.research.stance import (
 )
 
 __all__ = [
+    "FILTER_SYSTEM_PROMPT",
     "PLANNER_SYSTEM_PROMPT",
     "STANCE_SYSTEM_PROMPT",
     "DuckDuckGoAdapter",
+    "FilteredHit",
     "OfflineFixtureAdapter",
     "PlannedQuery",
     "QueryPlan",
@@ -65,6 +74,9 @@ __all__ = [
     "SearchResult",
     "StanceBrief",
     "analyse_topic",
+    "classify_source_kind",
+    "filter_result",
+    "persist_filter_outcomes",
     "plan_queries",
     "render_stance_lines",
 ]

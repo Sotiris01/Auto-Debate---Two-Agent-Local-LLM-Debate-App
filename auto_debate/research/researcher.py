@@ -37,6 +37,11 @@ from pathlib import Path
 from typing import Any, Final, Literal, Protocol
 
 from auto_debate.memory import AgentId, AgentMemory, MemoryStore
+from auto_debate.research.filter import (
+    FilteredHit,
+    filter_result,
+    persist_filter_outcomes,
+)
 from auto_debate.research.planner import (
     QueryPlan,
     plan_queries,
@@ -460,6 +465,11 @@ class Researcher:
         queries = list(plan.texts()) if plan is not None else self._plan_queries(topic, agent_id)
         queries = queries[: self.limits.max_queries]
         new_entries: list[str] = []
+        # Phase 20: per-result favourability filter outcomes (kept and
+        # dropped) accumulated across all queries for this agent and
+        # persisted at the end of the pass for audit.
+        filter_outcomes: list[FilteredHit] = []
+        filter_active = self.stance_enabled and brief is not None
 
         for query_idx, query in enumerate(queries, start=1):
             if time.monotonic() >= deadline:
@@ -479,6 +489,22 @@ class Researcher:
             for result in results:
                 if time.monotonic() >= deadline:
                     break
+                if filter_active and brief is not None:
+                    hit = filter_result(
+                        self.llm_client,
+                        brief,
+                        query,
+                        result,
+                        model=self.model,
+                    )
+                    filter_outcomes.append(hit)
+                    if hit.verdict == "drop":
+                        _log.debug(
+                            "filter dropped %s (reason=%s)",
+                            result.url,
+                            hit.reason,
+                        )
+                        continue
                 summary = self._summarise(topic, agent_id, result)
                 if summary is None:
                     continue
@@ -487,6 +513,24 @@ class Researcher:
                     continue
                 existing.add(entry)
                 new_entries.append(entry)
+
+        if filter_active and filter_outcomes:
+            try:
+                persist_filter_outcomes(
+                    filter_outcomes,
+                    run_root=self.memory_store.root,
+                    run_id=self.run_id,
+                    agent_id=agent_id,
+                )
+            except OSError:
+                _log.exception("failed to persist filter outcomes for agent=%s", agent_id)
+            kept = sum(1 for h in filter_outcomes if h.verdict == "keep")
+            _log.info(
+                "filter kept %d / %d hits for agent=%s",
+                kept,
+                len(filter_outcomes),
+                agent_id,
+            )
 
         if new_entries or stance_lines != memory.stance:
             updated = AgentMemory(
