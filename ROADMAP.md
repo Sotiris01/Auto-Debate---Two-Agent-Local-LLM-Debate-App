@@ -216,55 +216,46 @@ inserts blocks in the fixed order role → persona → behavior → optional
 
 ---
 
-### Phase 10 — Per-Agent Memory File 📋
+### Phase 10 — Per-Agent Memory File ✅
 
 **Goal:** Each agent owns a structured, persistent memory document read
 before every turn and writable by a dedicated reflection prompt. This is
 the **mechanism layer**; what gets written into it comes in Phases 11-12.
 
-**Steps**
+**Done.** New top-level [memory.py](memory.py) ships an `AgentMemory`
+frozen dataclass (`agent_id`, `knowledge`, `observations`, `strategy`,
+`turn_index`), a `MemoryStore` filesystem adapter that persists each
+agent under `runs/<run_id>/memory/<agent_id>.md`, and a
+`render_prompt_block` helper that produces the body the existing
+composer wraps in `<MEMORY>...</MEMORY>`. The engine accepts an optional
+`memory_store=` + `run_id=` and is feature-gated on
+`Settings.memory_enabled` (default `False`). Sidebar gained an "Enable
+agent memory" toggle and the main page renders two read-only memory
+expanders that update after every turn.
 
-1. **10.1 — Memory schema.** New module `auto_debate/memory.py`:
-   ```python
-   @dataclass
-   class AgentMemory:
-       agent_id: str            # "offender" | "defender"
-       knowledge: list[str]     # web-research snippets (Phase 11 fills)
-       observations: list[str]  # notes about opponent (Phase 12 fills)
-       strategy: list[str]      # agent's own evolving plan
-       turn_index: int          # last turn this memory reflects
-   ```
-   Persisted as Markdown with explicit `## Knowledge`, `## Observations`,
-   `## Strategy` sections under `runs/<run_id>/memory/{agent_id}.md`.
-2. **10.2 — Read/write contract.** `MemoryStore` class:
-   `load(run_id, agent_id) -> AgentMemory`,
-   `save(memory) -> Path`, `to_prompt_block(memory, *, max_chars) -> str`
-   (renders the memory as a `<MEMORY>...</MEMORY>` block for injection
-   into the composer). Token budget enforced by truncating oldest items
-   first.
-3. **10.3 — Composer integration.** `PromptComposer.compose(...)` accepts
-   an optional `memory: AgentMemory`. If present, its rendered block is
-   inserted after the behavior fragment.
-4. **10.4 — Engine integration.** `DebateEngine` gains
-   `_memories: dict[str, AgentMemory]`, initialized empty per run.
-   Feature-flagged by `Settings.memory_enabled` — default `False` to
-   preserve v0.1.0.
-5. **10.5 — UI surface.** Sidebar toggle "Enable agent memory". When on,
-   the main page shows two collapsible `st.expander("Offender memory")` /
-   `st.expander("Defender memory")` panes that render the live memory
-   markdown after each turn. Read-only in v0.2; manual editing deferred.
-6. **10.6 — Tests.** `tests/test_memory.py` — schema round-trip,
-   truncation budget, prompt-block rendering, file persistence under
-   `tmp_path`.
+| Step | Result |
+|---|---|
+| 10.1 — schema | `AgentMemory` frozen dataclass with tuple sequence fields; rejects unknown `agent_id` and negative `turn_index`; `with_turn_index()` helper for safe updates. |
+| 10.2 — read/write | `MemoryStore.load` / `save` / `to_prompt_block`; oldest-first truncation per section keeps each block ≤ `max_chars` (default 1500); path-traversal-style `run_id`s rejected. |
+| 10.3 — composer | `PromptComposer.compose(memory=...)` already accepted a body string from Phase 9; engine now feeds it from `MemoryStore.to_prompt_block(memory)`. Empty memory → empty body → no `<MEMORY>` block. |
+| 10.4 — engine + settings | `Settings.memory_enabled: bool` (env `MEMORY_ENABLED`, default `False`); `DebateEngine` gained `memory_store=` + `run_id=`, builds per-agent prompts that may include `<MEMORY>`, persists snapshots after every committed turn, exposes `memory_for(agent_id)`. |
+| 10.5 — UI | Sidebar `st.toggle` "Enable agent memory"; main page shows two `st.expander` panes (🗡️ Offender / 🛡️ Defender) rendered after replay; run id is generated as `YYYYMMDDTHHMMSSZ`. |
+| 10.6 — tests | 18 new tests in `tests/test_memory.py`: schema validation, markdown round-trip (filled + empty), missing-file fall-through, prompt-block budget + oldest-first drop, path-traversal rejection, OS-error wrapping, three engine-integration tests (default unchanged, flag-on-empty unchanged, preloaded memory injects `<MEMORY>`), file-write verification. |
 
 **Phase 10 Exit Criteria**
-- [ ] Memory files are written under `runs/<run_id>/memory/`; format
-  parses round-trip.
-- [ ] When `memory_enabled=False` (default), engine output is unchanged
-  vs v0.1.0 (regression test).
-- [ ] When `memory_enabled=True` with empty memory, output is still
-  unchanged (empty `<MEMORY>` block has no effect).
-- [ ] UI panes render the live memory after each turn.
+- [x] Memory files are written under `runs/<run_id>/memory/`; format
+  parses round-trip (`test_markdown_round_trip_preserves_content`).
+- [x] When `memory_enabled=False` (default), engine output is unchanged
+  vs v0.1.0 (regression test
+  `test_memory_disabled_default_matches_v0_1_0`).
+- [x] When `memory_enabled=True` with empty memory, output is still
+  unchanged — empty body produces no `<MEMORY>` block
+  (`test_memory_enabled_with_empty_memory_does_not_emit_block`).
+- [x] UI panes render the live memory after each turn via
+  `_refresh_memory_snapshot` + paired `st.expander`s.
+
+> **Status: Phase 10 complete.** Move to Phase 11 (web research will
+> populate the Knowledge slot defined here).
 
 ---
 
@@ -512,7 +503,7 @@ transcript and scores it against the 9 dimensions from
 | 7 | Hardening | ✅ shipped |
 | 8 | Docs & release | ✅ shipped (v0.1.0) |
 | 9 | Composable prompt architecture | ✅ shipped |
-| 10 | Per-agent memory file | 📋 planned |
+| 10 | Per-agent memory file | ✅ shipped |
 | 11 | Pre-debate web research | 📋 planned |
 | 12 | Pre-turn memory reflection | 📋 planned |
 | 13 | Repetition & quality guards | 📋 planned |

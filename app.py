@@ -13,6 +13,7 @@ which destroys the live generator and halts streaming within one token.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from typing import Any
 
 import streamlit as st
@@ -20,6 +21,7 @@ import streamlit as st
 from config import ConfigError, Settings, configure_logging, load_settings
 from engine import DebateEngine
 from llm import ModelNotFoundError, OllamaClient, OllamaUnavailableError
+from memory import AgentMemory, MemoryStore
 from prompts import (
     DEFAULT_BEHAVIOR_NAME,
     DEFAULT_PERSONA_NAME,
@@ -83,6 +85,8 @@ def _init_state() -> None:
         "pending_topic": None,  # set by Start, consumed by the run block
         "ollama_status": None,  # ("ok"|"error", message)
         "last_error": None,
+        "run_id": None,  # str | None — set when a debate starts
+        "memory_snapshot": {},  # dict[agent_id, AgentMemory]
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -155,6 +159,18 @@ with st.sidebar:
         help="Procedural directives layered after the persona.",
     )
 
+    memory_enabled = st.toggle(
+        "Enable agent memory",
+        value=bool(base_settings.memory_enabled),
+        disabled=st.session_state.running,
+        help=(
+            "Persist a structured memory document per agent under "
+            "`runs/<run_id>/memory/`. Phase 10 mechanism only \u2014 the memory "
+            "stays empty until Phase 11 (research) and Phase 12 (reflection) "
+            "populate it."
+        ),
+    )
+
     st.divider()
 
     if st.button("Check Ollama", disabled=st.session_state.running, use_container_width=True):
@@ -186,6 +202,7 @@ def _runtime_settings() -> Settings:
         model_name=model_name,
         max_turns=int(max_turns),
         temperature=float(temperature),
+        memory_enabled=bool(memory_enabled),
     )
 
 
@@ -247,6 +264,8 @@ if reset_clicked:
     st.session_state.messages = []
     st.session_state.topic = ""
     st.session_state.last_error = None
+    st.session_state.run_id = None
+    st.session_state.memory_snapshot = {}
     # Bumping the nonce changes the topic textbox's widget key, which
     # forces Streamlit to construct a fresh input on the next rerun and
     # honor ``value=""`` (otherwise the previously-typed value would be
@@ -266,11 +285,62 @@ def _render_message(speaker: str, content: str) -> None:
         st.markdown(f"**{_LABELS[speaker]}**\n\n{content}")
 
 
+def _refresh_memory_snapshot(engine: DebateEngine) -> None:
+    """Copy the engine's live memory into session state for replay rendering."""
+    snapshot: dict[str, AgentMemory] = {}
+    offender_mem = engine.memory_for("offender")
+    defender_mem = engine.memory_for("defender")
+    if offender_mem is not None:
+        snapshot["offender"] = offender_mem
+    if defender_mem is not None:
+        snapshot["defender"] = defender_mem
+    st.session_state.memory_snapshot = snapshot
+
+
+def _render_memory_section(memory: AgentMemory) -> str:
+    """Format an :class:`AgentMemory` as Markdown for an `st.expander`."""
+    parts = [f"_Reflects turn **{memory.turn_index}**._", ""]
+
+    def _block(title: str, items: tuple[str, ...]) -> None:
+        parts.append(f"**{title}**")
+        if items:
+            parts.extend(f"- {item}" for item in items)
+        else:
+            parts.append("_(empty)_")
+        parts.append("")
+
+    _block("Knowledge", memory.knowledge)
+    _block("Observations", memory.observations)
+    _block("Strategy", memory.strategy)
+    return "\n".join(parts).rstrip()
+
+
 for msg in st.session_state.messages:
     _render_message(msg["speaker"], msg["content"])
 
 if st.session_state.last_error is not None:
     st.error(st.session_state.last_error)
+
+
+# --- live memory panes (Phase 10) -------------------------------------------
+
+if memory_enabled and st.session_state.memory_snapshot:
+    st.divider()
+    st.caption("Agent memory (read-only — populated by Phases 11 & 12).")
+    mem_col_off, mem_col_def = st.columns(2)
+    snapshot: dict[str, AgentMemory] = st.session_state.memory_snapshot
+    with mem_col_off, st.expander("🗡️ Offender memory", expanded=False):
+        off_mem = snapshot.get("offender")
+        if off_mem is None:
+            st.markdown("_No memory recorded yet._")
+        else:
+            st.markdown(_render_memory_section(off_mem))
+    with mem_col_def, st.expander("🛡️ Defender memory", expanded=False):
+        def_mem = snapshot.get("defender")
+        if def_mem is None:
+            st.markdown("_No memory recorded yet._")
+        else:
+            st.markdown(_render_memory_section(def_mem))
 
 
 # --- transcript export ------------------------------------------------------
@@ -317,12 +387,20 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
         except Exception:
             # Fall back to standard on any registry error.
             behavior = STANDARD_BEHAVIOR
+        # Phase 10: optional per-agent memory store.
+        memory_store: MemoryStore | None = None
+        run_id: str | None = None
+        if settings.memory_enabled:
+            memory_store = MemoryStore()
+            run_id = st.session_state.run_id
         engine = DebateEngine(
             settings,
             client,
             topic_text,
             persona=persona,
             behavior=behavior,
+            memory_store=memory_store,
+            run_id=run_id,
         )
     except OllamaUnavailableError as exc:
         st.session_state.last_error = (
@@ -364,6 +442,7 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
                 st.session_state.messages.append(
                     {"speaker": speaker, "content": final_text},
                 )
+            _refresh_memory_snapshot(engine)
             if stop_check():
                 break
             speaker = "defender" if speaker == "offender" else "offender"
@@ -388,6 +467,8 @@ if start_clicked and topic.strip():
     st.session_state.running = True
     st.session_state.topic = topic.strip()
     st.session_state.pending_topic = topic.strip()
+    st.session_state.run_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    st.session_state.memory_snapshot = {}
     st.rerun()
 
 if st.session_state.running and st.session_state.pending_topic:

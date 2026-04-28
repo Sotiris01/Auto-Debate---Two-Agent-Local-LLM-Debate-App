@@ -39,6 +39,7 @@ _DEFAULT_MAX_TURNS = 10
 _DEFAULT_TEMPERATURE = 0.8
 _DEFAULT_TOP_P = 0.95
 _DEFAULT_WORD_LIMIT = 120
+_DEFAULT_MEMORY_ENABLED = False
 
 
 class ConfigError(ValueError):
@@ -60,6 +61,7 @@ class Settings:
     temperature: float
     top_p: float
     word_limit: int
+    memory_enabled: bool = _DEFAULT_MEMORY_ENABLED
 
 
 # --- helpers ----------------------------------------------------------------
@@ -94,6 +96,19 @@ def _get_float(name: str, default: float, problems: list[str]) -> float:
         return default
 
 
+def _get_bool(name: str, default: bool, problems: list[str]) -> bool:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    value = raw.strip().lower()
+    if value in ("1", "true", "yes", "on"):
+        return True
+    if value in ("0", "false", "no", "off"):
+        return False
+    problems.append(f"{name}={raw!r} is not a valid boolean")
+    return default
+
+
 def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Settings:
     """Load and validate :class:`Settings` from the environment.
 
@@ -121,6 +136,7 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
     temperature = _get_float("TEMPERATURE", _DEFAULT_TEMPERATURE, problems)
     top_p = _get_float("TOP_P", _DEFAULT_TOP_P, problems)
     word_limit = _get_int("WORD_LIMIT", _DEFAULT_WORD_LIMIT, problems)
+    memory_enabled = _get_bool("MEMORY_ENABLED", _DEFAULT_MEMORY_ENABLED, problems)
 
     if not ollama_host.startswith(("http://", "https://")):
         problems.append(
@@ -147,6 +163,7 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         temperature=temperature,
         top_p=top_p,
         word_limit=word_limit,
+        memory_enabled=memory_enabled,
     )
 
 

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from config import Settings
+from memory import AgentId, AgentMemory, MemoryStore, MemoryStoreError
 from prompts import (
     DEFENDER_ROLE,
     NEUTRAL_PERSONA,
@@ -28,6 +29,7 @@ from prompts import (
     PersonaFragment,
     PromptComposer,
     Role,
+    RoleFragment,
 )
 
 __all__ = [
@@ -90,28 +92,87 @@ class DebateEngine:
     topic: str
     persona: PersonaFragment = NEUTRAL_PERSONA
     behavior: BehaviorFragment = STANDARD_BEHAVIOR
+    memory_store: MemoryStore | None = None
+    run_id: str | None = None
 
     _offender_msgs: list[dict[str, Any]] = field(init=False)
     _defender_msgs: list[dict[str, Any]] = field(init=False)
     _turns: list[DebateTurn] = field(init=False, default_factory=list)
     _offender_has_spoken: bool = field(init=False, default=False)
+    _composer: PromptComposer = field(init=False)
+    _memories: dict[AgentId, AgentMemory] = field(init=False, default_factory=dict)
 
     def __post_init__(self) -> None:
-        composer = PromptComposer(word_limit=self.settings.word_limit)
-        offender_system = composer.compose(
-            role=OFFENDER_ROLE,
-            topic=self.topic,
-            persona=self.persona,
-            behavior=self.behavior,
-        )
-        defender_system = composer.compose(
-            role=DEFENDER_ROLE,
-            topic=self.topic,
-            persona=self.persona,
-            behavior=self.behavior,
-        )
+        self._composer = PromptComposer(word_limit=self.settings.word_limit)
+        if self._memory_active:
+            assert self.memory_store is not None and self.run_id is not None
+            self._memories = {
+                "offender": self.memory_store.load(self.run_id, "offender"),
+                "defender": self.memory_store.load(self.run_id, "defender"),
+            }
+        offender_system = self._build_system_prompt(OFFENDER_ROLE, "offender")
+        defender_system = self._build_system_prompt(DEFENDER_ROLE, "defender")
         self._offender_msgs = [{"role": "system", "content": offender_system}]
         self._defender_msgs = [{"role": "system", "content": defender_system}]
+
+    # --- memory helpers ----------------------------------------------------
+
+    @property
+    def _memory_active(self) -> bool:
+        """True when memory injection is fully wired (flag + store + run_id)."""
+        return (
+            self.settings.memory_enabled
+            and self.memory_store is not None
+            and self.run_id is not None
+        )
+
+    def _memory_block_for(self, agent_id: AgentId) -> str | None:
+        if not self._memory_active:
+            return None
+        memory = self._memories.get(agent_id)
+        if memory is None:
+            return None
+        assert self.memory_store is not None
+        block = self.memory_store.to_prompt_block(memory)
+        return block or None
+
+    def _build_system_prompt(self, role: RoleFragment, agent_id: AgentId) -> str:
+        return self._composer.compose(
+            role=role,
+            topic=self.topic,
+            persona=self.persona,
+            behavior=self.behavior,
+            memory=self._memory_block_for(agent_id),
+        )
+
+    def memory_for(self, agent_id: AgentId) -> AgentMemory | None:
+        """Return the live memory for ``agent_id`` (UI surface)."""
+        return self._memories.get(agent_id)
+
+    def _persist_memory(self, speaker: Role, turn_index: int) -> None:
+        """Persist both agents' memories after a turn is committed.
+
+        Phase 10 only stamps the new ``turn_index`` — the section
+        contents are unchanged because no phase mutates them yet.
+        Phase 12's reflection pass will replace this stub with a real
+        update routine.
+        """
+        if not self._memory_active:
+            return
+        assert self.memory_store is not None and self.run_id is not None
+        for agent_id, current in list(self._memories.items()):
+            updated = current.with_turn_index(turn_index)
+            self._memories[agent_id] = updated
+            try:
+                self.memory_store.save(self.run_id, updated)
+            except MemoryStoreError:
+                _log.exception(
+                    "failed to persist memory for agent=%s turn=%d",
+                    agent_id,
+                    turn_index,
+                )
+        # Speaker is only used for logging context; no per-speaker logic yet.
+        _log.debug("memory snapshot persisted after turn %d (%s)", turn_index, speaker)
 
     # --- inspection --------------------------------------------------------
 
@@ -162,6 +223,7 @@ class DebateEngine:
         self._turns.append(
             DebateTurn(speaker=speaker, content=content, index=index),
         )
+        self._persist_memory(speaker, index)
         _log.info(
             "committed turn %d: speaker=%s chars=%d words=%d",
             index,
