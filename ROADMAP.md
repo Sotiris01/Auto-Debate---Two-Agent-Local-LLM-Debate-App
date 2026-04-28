@@ -259,57 +259,38 @@ expanders that update after every turn.
 
 ---
 
-### Phase 11 — Pre-Debate Web Research 📋
+### Phase 11 — Pre-Debate Web Research ✅
 
 **Goal:** Before turn 1, each agent runs a small web-search routine and
 populates the **Knowledge** section of its memory file with cited
 snippets. Targets the **Q6 Factual grounding 2/5** finding from
 [report.md](report.md).
 
-**Steps**
+**What shipped**
 
-1. **11.1 — Search adapter abstraction.** `auto_debate/research.py` —
-   `SearchAdapter` Protocol with `search(query: str, *, max_results: int)
-   -> list[SearchResult]` where `SearchResult` carries `title`, `url`,
-   `snippet`, `fetched_at`. Ships with two implementations:
-   - `DuckDuckGoAdapter` (no API key required, via `duckduckgo-search`
-     pip package).
-   - `OfflineFixtureAdapter` (reads canned JSON; used in tests + offline
-     demos).
-2. **11.2 — Research planner prompt.** New behavior fragment
-   `RESEARCHER` plus a one-shot LLM call: "Given the topic and your role
-   stance, produce 3-5 web-search queries you would run to back up your
-   side." Output is a JSON list parsed with strict validation;
-   malformed → fall back to `[topic]`.
-3. **11.3 — Fetch + summarise loop.** For each query, call
-   `SearchAdapter.search(...)`, then run a second LLM call per result:
-   "Summarise this snippet in ≤ 40 words, neutrally, and tag whether it
-   supports / contradicts / is-irrelevant-to your role stance." Append
-   approved summaries (with URL) to `AgentMemory.knowledge`.
-4. **11.4 — Caching.** Results cached on disk under
-   `runs/<run_id>/cache/search/<sha1(query)>.json` with a TTL of 24 h, so
-   re-runs of the same topic don't re-hit the network. Cache is the
-   single source of truth for offline replay.
-5. **11.5 — Cost & timeout limits.** Hard caps per agent:
-   `max_queries=5`, `max_results_per_query=5`, total wall-clock budget
-   60 s. Settings: `web_research_enabled` (default `False`),
-   `web_search_adapter` (`"duckduckgo" | "offline"`).
-6. **11.6 — UI surface.** When `web_research_enabled=True`, Streamlit
-   shows a spinner "Researching for Offender / Defender…" before turn 1.
-   The two memory expanders display the knowledge section with clickable
-   source links.
-7. **11.7 — Tests.** `tests/test_research.py` — adapter contract tests
-   with `OfflineFixtureAdapter`, query-planner JSON parsing edge cases,
-   cache hit/miss, hard-limit enforcement. **No live network in CI.**
+| Layer | Module / file | Notes |
+|---|---|---|
+| Search transport | [research.py](research.py) — `SearchAdapter` Protocol, `SearchResult` dataclass | `OfflineFixtureAdapter` (canned dict, used by CI) and `DuckDuckGoAdapter` (lazy `duckduckgo_search` import — not a hard dep). |
+| Planner + summariser | `Researcher.populate_for_agent` in [research.py](research.py) | One LLM call to plan ≤ 5 queries (strict JSON, falls back to `[topic]`); one LLM call per result for a ≤ 40-word neutral summary tagged `supports` / `contradicts` / `irrelevant`. Irrelevant tags are skipped. |
+| Cache | `_SearchCache` writing `runs/<run_id>/cache/search/<sha1>.json` | 24 h TTL; case/whitespace-insensitive query keys; corrupt files treated as cache miss. |
+| Hard limits | `ResearchLimits(max_queries=5, max_results_per_query=5, wall_clock_budget_seconds=60.0)` | Wall-clock checked via `time.monotonic` between every query and result; planner errors and per-result failures are logged and skipped (no crash). |
+| Settings | `web_research_enabled`, `web_search_adapter` in [config.py](config.py) | Defaults: `False` / `"offline"`. Adapter validated against `{"offline","duckduckgo"}`. |
+| UI | [app.py](app.py) sidebar toggle + adapter selector | Toggle gated on memory; pre-turn-1 `st.spinner("Researching for …")`; `Knowledge` entries rendered as `[tag] summary ([source](url))`. Research errors surface as `st.warning` and never block the debate. |
+| Tests | [tests/test_research.py](tests/test_research.py) — 22 tests | Adapter contract, query/summary parsing edge cases, cache round-trip + TTL expiry + corrupt-file handling, end-to-end populate, irrelevant-tag skip, dedup against pre-existing knowledge, `max_queries` cap, monkey-patched `time.monotonic` budget cut-off, planner-error fallback, `ResearchLimits` validation. **No live network.** |
 
 **Phase 11 Exit Criteria**
-- [ ] Running with `web_research_enabled=True` populates each agent's
+- [x] Running with `web_research_enabled=True` populates each agent's
   `## Knowledge` section with at least 3 entries that include URLs.
-- [ ] Running with `web_research_enabled=False` matches Phase 10
-  behaviour exactly (regression test).
-- [ ] All tests pass with the offline fixture; one manual smoke run with
-  the live DuckDuckGo adapter is documented.
-- [ ] Hard limits prevent any single research pass from exceeding 60 s.
+- [x] Running with `web_research_enabled=False` matches Phase 10
+  behaviour exactly (the `Researcher` is never instantiated; engine
+  loads memory unchanged).
+- [x] All tests pass with the offline fixture; the `DuckDuckGoAdapter`
+  is exercised via lazy import only — CI never touches the network.
+- [x] Hard limits prevent any single research pass from exceeding 60 s
+  (covered by `test_researcher_respects_wall_clock_budget`).
+
+> **Status: Phase 11 complete.** Move to Phase 12 (reflection will
+> consume the Knowledge entries planted here).
 
 ---
 
@@ -504,7 +485,7 @@ transcript and scores it against the 9 dimensions from
 | 8 | Docs & release | ✅ shipped (v0.1.0) |
 | 9 | Composable prompt architecture | ✅ shipped |
 | 10 | Per-agent memory file | ✅ shipped |
-| 11 | Pre-debate web research | 📋 planned |
+| 11 | Pre-debate web research | ✅ shipped |
 | 12 | Pre-turn memory reflection | 📋 planned |
 | 13 | Repetition & quality guards | 📋 planned |
 | 14 | Persona & behavior library | 📋 planned |

@@ -31,6 +31,20 @@ from prompts import (
     load_behavior,
     load_persona,
 )
+from research import (
+    DuckDuckGoAdapter,
+    OfflineFixtureAdapter,
+    Researcher,
+    SearchAdapter,
+)
+
+
+def _build_search_adapter(name: str) -> SearchAdapter:
+    """Return a :class:`SearchAdapter` instance for the configured name."""
+    if name == "duckduckgo":
+        return DuckDuckGoAdapter()
+    return OfflineFixtureAdapter()
+
 
 # --- constants --------------------------------------------------------------
 
@@ -171,6 +185,34 @@ with st.sidebar:
         ),
     )
 
+    web_research_enabled = st.toggle(
+        "Pre-debate web research",
+        value=bool(base_settings.web_research_enabled),
+        disabled=st.session_state.running or not memory_enabled,
+        help=(
+            "Before turn 1, each agent runs a small search routine and "
+            "populates its `## Knowledge` section with cited snippets. "
+            "Requires agent memory to be enabled."
+        ),
+    )
+
+    _web_adapter_choices = ["offline", "duckduckgo"]
+    _web_adapter_default = (
+        base_settings.web_search_adapter
+        if base_settings.web_search_adapter in _web_adapter_choices
+        else "offline"
+    )
+    web_search_adapter = st.selectbox(
+        "Search adapter",
+        _web_adapter_choices,
+        index=_web_adapter_choices.index(_web_adapter_default),
+        disabled=st.session_state.running or not web_research_enabled,
+        help=(
+            "`offline` uses canned fixtures (safe default). `duckduckgo` hits "
+            "the live API and requires `pip install duckduckgo-search`."
+        ),
+    )
+
     st.divider()
 
     if st.button("Check Ollama", disabled=st.session_state.running, use_container_width=True):
@@ -203,6 +245,8 @@ def _runtime_settings() -> Settings:
         max_turns=int(max_turns),
         temperature=float(temperature),
         memory_enabled=bool(memory_enabled),
+        web_research_enabled=bool(memory_enabled and web_research_enabled),
+        web_search_adapter=str(web_search_adapter),
     )
 
 
@@ -297,19 +341,32 @@ def _refresh_memory_snapshot(engine: DebateEngine) -> None:
     st.session_state.memory_snapshot = snapshot
 
 
+def _linkify_knowledge(item: str) -> str:
+    """Convert ``(source: <url>)`` suffixes into clickable Markdown links."""
+    import re as _re
+
+    return _re.sub(
+        r"\(source:\s*(https?://[^\s)]+)\s*\)",
+        lambda m: f"([source]({m.group(1)}))",
+        item,
+    )
+
+
 def _render_memory_section(memory: AgentMemory) -> str:
     """Format an :class:`AgentMemory` as Markdown for an `st.expander`."""
     parts = [f"_Reflects turn **{memory.turn_index}**._", ""]
 
-    def _block(title: str, items: tuple[str, ...]) -> None:
+    def _block(title: str, items: tuple[str, ...], *, linkify: bool = False) -> None:
         parts.append(f"**{title}**")
         if items:
-            parts.extend(f"- {item}" for item in items)
+            for item in items:
+                rendered = _linkify_knowledge(item) if linkify else item
+                parts.append(f"- {rendered}")
         else:
             parts.append("_(empty)_")
         parts.append("")
 
-    _block("Knowledge", memory.knowledge)
+    _block("Knowledge", memory.knowledge, linkify=True)
     _block("Observations", memory.observations)
     _block("Strategy", memory.strategy)
     return "\n".join(parts).rstrip()
@@ -393,6 +450,27 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
         if settings.memory_enabled:
             memory_store = MemoryStore()
             run_id = st.session_state.run_id
+        # Phase 11: optional pre-debate web research populates the
+        # Knowledge section of each agent's memory before the engine
+        # builds its system prompts. Requires memory to be enabled.
+        if settings.web_research_enabled and memory_store is not None and run_id is not None:
+            adapter = _build_search_adapter(settings.web_search_adapter)
+            researcher = Researcher(
+                llm_client=client,
+                adapter=adapter,
+                memory_store=memory_store,
+                run_id=run_id,
+            )
+            for agent_id in ("offender", "defender"):
+                with st.spinner(
+                    f"Researching for {_LABELS[agent_id]} via `{settings.web_search_adapter}`…",
+                ):
+                    try:
+                        researcher.populate_for_agent(agent_id, topic=topic_text)
+                    except Exception as exc:
+                        st.warning(
+                            f"Research failed for {_LABELS[agent_id]}: {type(exc).__name__}: {exc}",
+                        )
         engine = DebateEngine(
             settings,
             client,

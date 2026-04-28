@@ -42,8 +42,8 @@ testpaths = ["tests"]
 [tool.mypy]
 python_version = "3.10"
 strict = true
-files = ["config.py", "prompts", "memory.py", "llm.py", "engine.py"]
+files = ["config.py", "prompts", "memory.py", "research.py", "llm.py", "engine.py"]
 # Streamlit and ollama don't ship strict-friendly stubs.
 [[tool.mypy.overrides]]
-module = ["ollama", "ollama.*", "dotenv", "dotenv.*"]
+module = ["ollama", "ollama.*", "dotenv", "dotenv.*", "duckduckgo_search", "duckduckgo_search.*"]
 ignore_missing_imports = true

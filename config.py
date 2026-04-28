@@ -40,6 +40,9 @@ _DEFAULT_TEMPERATURE = 0.8
 _DEFAULT_TOP_P = 0.95
 _DEFAULT_WORD_LIMIT = 120
 _DEFAULT_MEMORY_ENABLED = False
+_DEFAULT_WEB_RESEARCH_ENABLED = False
+_DEFAULT_WEB_SEARCH_ADAPTER = "offline"
+_VALID_WEB_SEARCH_ADAPTERS = ("offline", "duckduckgo")
 
 
 class ConfigError(ValueError):
@@ -62,6 +65,8 @@ class Settings:
     top_p: float
     word_limit: int
     memory_enabled: bool = _DEFAULT_MEMORY_ENABLED
+    web_research_enabled: bool = _DEFAULT_WEB_RESEARCH_ENABLED
+    web_search_adapter: str = _DEFAULT_WEB_SEARCH_ADAPTER
 
 
 # --- helpers ----------------------------------------------------------------
@@ -137,6 +142,15 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
     top_p = _get_float("TOP_P", _DEFAULT_TOP_P, problems)
     word_limit = _get_int("WORD_LIMIT", _DEFAULT_WORD_LIMIT, problems)
     memory_enabled = _get_bool("MEMORY_ENABLED", _DEFAULT_MEMORY_ENABLED, problems)
+    web_research_enabled = _get_bool(
+        "WEB_RESEARCH_ENABLED",
+        _DEFAULT_WEB_RESEARCH_ENABLED,
+        problems,
+    )
+    web_search_adapter = _get_str(
+        "WEB_SEARCH_ADAPTER",
+        _DEFAULT_WEB_SEARCH_ADAPTER,
+    ).lower()
 
     if not ollama_host.startswith(("http://", "https://")):
         problems.append(
@@ -152,6 +166,11 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         problems.append(f"TOP_P={top_p} must be in (0, 1]")
     if word_limit < 30:
         problems.append(f"WORD_LIMIT={word_limit} must be >= 30")
+    if web_search_adapter not in _VALID_WEB_SEARCH_ADAPTERS:
+        problems.append(
+            f"WEB_SEARCH_ADAPTER={web_search_adapter!r} must be one of "
+            f"{list(_VALID_WEB_SEARCH_ADAPTERS)}",
+        )
 
     if problems:
         raise ConfigError("Invalid configuration:\n  - " + "\n  - ".join(problems))
@@ -164,6 +183,8 @@ def load_settings(*, dotenv_path: str | os.PathLike[str] | None = None) -> Setti
         top_p=top_p,
         word_limit=word_limit,
         memory_enabled=memory_enabled,
+        web_research_enabled=web_research_enabled,
+        web_search_adapter=web_search_adapter,
     )
 
 
