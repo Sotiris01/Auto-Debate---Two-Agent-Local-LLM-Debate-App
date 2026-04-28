@@ -49,6 +49,14 @@ from .fragments import (
     PersonaFragment,
     RoleFragment,
 )
+from .presets import (
+    BUILTIN_PRESETS,
+    AgentPreset,
+    DebatePreset,
+    check_compatibility,
+    list_presets,
+    preset_by_name,
+)
 from .registry import (
     FragmentNotFoundError,
     InvalidFragmentError,
@@ -61,6 +69,7 @@ from .registry import (
 )
 
 __all__ = [
+    "BUILTIN_PRESETS",
     "CLOSING_BEHAVIOR",
     "DEFAULT_BEHAVIOR_NAME",
     "DEFAULT_PERSONA_NAME",
@@ -72,7 +81,9 @@ __all__ = [
     "OFFENDER_SYSTEM_TEMPLATE",
     "OPENING_USER_MESSAGE",
     "STANDARD_BEHAVIOR",
+    "AgentPreset",
     "BehaviorFragment",
+    "DebatePreset",
     "FragmentKind",
     "FragmentNotFoundError",
     "InvalidFragmentError",
@@ -82,12 +93,15 @@ __all__ = [
     "Role",
     "RoleFragment",
     "build_system_prompt",
+    "check_compatibility",
     "default_library_root",
     "list_fragments",
+    "list_presets",
     "load_behavior",
     "load_fragment",
     "load_persona",
     "load_role",
+    "preset_by_name",
     "sanitize_topic",
 ]
 

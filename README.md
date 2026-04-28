@@ -94,6 +94,54 @@ engine → app**, each one fully tested before the next is built.
 
 See [PROJECT.md §5](PROJECT.md) for the canonical file tree.
 
+## Personas & behaviors
+
+Each agent's system prompt is composed at run time from a **role**
+fragment (Offender / Defender), a **persona** fragment (voice / tone),
+and a **behavior** fragment (procedural directives). Fragments live as
+JSON files under `prompts/library/`.
+
+| Persona | Voice |
+| --- | --- |
+| `neutral` | Calm, balanced, no overlay (default) |
+| `professor` | Formal academic, citations and named studies |
+| `socratic` | Probing, question-driven, exposes assumptions |
+| `tabloid` | Punchy, sensational, headline-grabbing |
+| `politician` | Rhetorical, audience-aware, frames around values |
+| `comedian` | Dry, irreverent observational humour |
+
+| Behavior | Effect |
+| --- | --- |
+| `standard` | No extra directives (default) |
+| `steelman` | Restate opponent's strongest version before rebutting |
+| `closing` | Final-statement summary used on the last round |
+| `cite_evidence` | Name a specific source / Knowledge entry per turn |
+| `concise` | Hard cap ~50 words, one main point only |
+| `analytical` | 2–4 numbered points with framing + conclusion |
+
+The sidebar's **Preset** selector picks a pre-vetted (offender, defender)
+bundle — for example *Academic debate* pairs `professor + steelman` vs
+`professor + cite_evidence`. Choosing **Custom** falls back to a single
+persona/behavior pair shared by both agents. The UI shows a warning
+when the selected combination is flagged as incompatible by
+`prompts.check_compatibility` (e.g. `analytical + concise`).
+
+**Add your own persona** by dropping a new `<name>.json` file under
+`prompts/library/personas/` with the schema:
+
+```json
+{
+  "name": "my_voice",
+  "tone": "short tone description",
+  "signature_phrases": ["optional", "stock phrases"],
+  "extra_directives": ["short imperative directives, one per line"]
+}
+```
+
+Behaviors use the same shape under `prompts/library/behaviors/` with a
+`directives` array. The registry picks them up automatically on next
+import — no code change required.
+
 ## Performance
 
 Reference numbers from a local CPU run of `scripts/bench.py` against

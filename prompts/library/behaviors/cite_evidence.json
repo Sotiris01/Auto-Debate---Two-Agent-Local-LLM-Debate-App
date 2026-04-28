@@ -1,0 +1,8 @@
+{
+  "name": "cite_evidence",
+  "directives": [
+    "Reference at least one concrete piece of evidence per turn — a named study, dated event, statistic, or quoted source — before drawing your conclusion.",
+    "If your memory's Knowledge section contains a relevant entry, prefer it and reproduce its source link inline.",
+    "When no concrete evidence is available, name that gap explicitly rather than hand-waving past it."
+  ]
+}

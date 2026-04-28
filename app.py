@@ -27,9 +27,12 @@ from prompts import (
     DEFAULT_PERSONA_NAME,
     NEUTRAL_PERSONA,
     STANDARD_BEHAVIOR,
+    check_compatibility,
     list_fragments,
+    list_presets,
     load_behavior,
     load_persona,
+    preset_by_name,
 )
 from reflection import Reflector
 from research import (
@@ -146,6 +149,22 @@ with st.sidebar:
     st.divider()
     st.caption("Prompt composition (Phase 9)")
 
+    _preset_objs = list_presets()
+    _preset_choices = ["Custom", *(p.name for p in _preset_objs)]
+    preset_choice = st.selectbox(
+        "Preset",
+        _preset_choices,
+        index=0,
+        disabled=st.session_state.running,
+        help=(
+            "Pre-vetted (offender, defender) bundles. 'Custom' uses the "
+            "single Persona + Behavior pair selected below for both agents."
+        ),
+    )
+    _selected_preset = preset_by_name(preset_choice) if preset_choice != "Custom" else None
+    if _selected_preset is not None:
+        st.caption(f"_{_selected_preset.description}_")
+
     _persona_choices = list_fragments("personas") or [DEFAULT_PERSONA_NAME]
     _persona_default_idx = (
         _persona_choices.index(DEFAULT_PERSONA_NAME)
@@ -156,7 +175,7 @@ with st.sidebar:
         "Persona",
         _persona_choices,
         index=_persona_default_idx,
-        disabled=st.session_state.running,
+        disabled=st.session_state.running or _selected_preset is not None,
         help="Voice / tone overlay applied on top of the role.",
     )
 
@@ -170,9 +189,31 @@ with st.sidebar:
         "Behavior",
         _behavior_choices,
         index=_behavior_default_idx,
-        disabled=st.session_state.running,
+        disabled=st.session_state.running or _selected_preset is not None,
         help="Procedural directives layered after the persona.",
     )
+
+    # When a preset is active its persona/behavior pair takes over for the
+    # offender; the defender override happens later in `_run_debate`.
+    if _selected_preset is not None:
+        offender_persona_name = _selected_preset.offender.persona
+        offender_behavior_name = _selected_preset.offender.behavior
+        defender_persona_name = _selected_preset.defender.persona
+        defender_behavior_name = _selected_preset.defender.behavior
+    else:
+        offender_persona_name = persona_name
+        offender_behavior_name = behavior_name
+        defender_persona_name = persona_name
+        defender_behavior_name = behavior_name
+
+    _compat_warnings = check_compatibility(
+        persona=offender_persona_name,
+        behavior=offender_behavior_name,
+        other_persona=defender_persona_name,
+        other_behavior=defender_behavior_name,
+    )
+    for _msg in _compat_warnings:
+        st.warning(_msg, icon="⚠️")
 
     memory_enabled = st.toggle(
         "Enable agent memory",
@@ -538,16 +579,34 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
         client = OllamaClient(settings)
         client.ensure_model_available()
         # Phase 9: compose the prompt from sidebar-selected persona + behavior.
+        # Phase 14: when a preset is active these are the *offender* fragments;
+        # the defender override is computed below.
         try:
-            persona = load_persona(persona_name)
+            persona = load_persona(offender_persona_name)
         except Exception:
             # Fall back to neutral on any registry error.
             persona = NEUTRAL_PERSONA
         try:
-            behavior = load_behavior(behavior_name)
+            behavior = load_behavior(offender_behavior_name)
         except Exception:
             # Fall back to standard on any registry error.
             behavior = STANDARD_BEHAVIOR
+        # Phase 14: optional defender overrides (only differ from the
+        # offender side when a preset is selected).
+        defender_persona_obj = None
+        defender_behavior_obj = None
+        if (
+            defender_persona_name != offender_persona_name
+            or defender_behavior_name != offender_behavior_name
+        ):
+            try:
+                defender_persona_obj = load_persona(defender_persona_name)
+            except Exception:
+                defender_persona_obj = None
+            try:
+                defender_behavior_obj = load_behavior(defender_behavior_name)
+            except Exception:
+                defender_behavior_obj = None
         # Phase 10: optional per-agent memory store.
         memory_store: MemoryStore | None = None
         run_id: str | None = None
@@ -581,6 +640,8 @@ def _run_debate(settings: Settings, topic_text: str) -> None:
             topic_text,
             persona=persona,
             behavior=behavior,
+            defender_persona=defender_persona_obj,
+            defender_behavior=defender_behavior_obj,
             memory_store=memory_store,
             run_id=run_id,
             reflector=(

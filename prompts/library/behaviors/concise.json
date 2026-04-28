@@ -1,0 +1,8 @@
+{
+  "name": "concise",
+  "directives": [
+    "Keep this turn under 50 words. Treat the word limit as a hard ceiling, not a target.",
+    "One main point per turn — pick the strongest and drop the rest.",
+    "Prefer short declarative sentences; cut every adjective that does not change the meaning."
+  ]
+}

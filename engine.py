@@ -138,6 +138,8 @@ class DebateEngine:
     topic: str
     persona: PersonaFragment = NEUTRAL_PERSONA
     behavior: BehaviorFragment = STANDARD_BEHAVIOR
+    defender_persona: PersonaFragment | None = None
+    defender_behavior: BehaviorFragment | None = None
     memory_store: MemoryStore | None = None
     run_id: str | None = None
     reflector: Reflector | None = None
@@ -188,6 +190,16 @@ class DebateEngine:
         block = self.memory_store.to_prompt_block(memory)
         return block or None
 
+    def _persona_for(self, agent_id: AgentId) -> PersonaFragment:
+        if agent_id == "defender" and self.defender_persona is not None:
+            return self.defender_persona
+        return self.persona
+
+    def _behavior_for(self, agent_id: AgentId) -> BehaviorFragment:
+        if agent_id == "defender" and self.defender_behavior is not None:
+            return self.defender_behavior
+        return self.behavior
+
     def _build_system_prompt(
         self,
         role: RoleFragment,
@@ -198,8 +210,8 @@ class DebateEngine:
         return self._composer.compose(
             role=role,
             topic=self.topic,
-            persona=self.persona,
-            behavior=behavior if behavior is not None else self.behavior,
+            persona=self._persona_for(agent_id),
+            behavior=behavior if behavior is not None else self._behavior_for(agent_id),
             memory=self._memory_block_for(agent_id),
         )
 
@@ -227,7 +239,7 @@ class DebateEngine:
             and self._agent_speech_count(speaker) == self.settings.max_turns - 1
         ):
             return self.closing_behavior
-        return self.behavior
+        return self._behavior_for(speaker)
 
     def _opponent_last_text(self, speaker: Role) -> str | None:
         opponent = _opposite(speaker)
